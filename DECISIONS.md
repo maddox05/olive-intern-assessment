@@ -1,5 +1,7 @@
 # DECISIONS.md
 
+TODO LATER NOT FOR AI
+
 A short log of the product and technical decisions you made while building Text-to-Quiz. Keep it honest — tradeoffs and "I'd do this differently with more time" are as valuable as wins.
 
 ---
