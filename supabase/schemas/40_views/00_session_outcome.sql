@@ -1,6 +1,8 @@
--- Computed-on-read outcome per session: total score (sum of chosen-option scores)
--- and tag tally (jsonb of tag -> count). Used by analytics queries.
--- Card quizzes use the same path as score quizzes; tag quizzes ignore total_score.
+-- Computed-on-read outcome per session: total score (sum of chosen-option
+-- scores plus slider numeric values) and tag tally (jsonb of tag -> count).
+-- Used by analytics queries.
+-- Card quizzes use the same path as score quizzes; tag quizzes ignore
+-- total_score and just consume tag_counts.
 create or replace view public.session_outcome as
 with chosen_options as (
   -- single-choice answers contribute their option directly
@@ -23,27 +25,30 @@ with chosen_options as (
   select session_id, score, tags from chosen_options
   union all
   select session_id, score, tags from slider_answers
-), per_session as (
-  select
-    session_id,
-    coalesce(sum(score), 0)::int as total_score,
-    array_agg(t) filter (where t is not null) as flat_tags
-  from all_contributions, lateral unnest(coalesce(tags, '{}')) as t
+), per_session_score as (
+  select session_id, coalesce(sum(score), 0)::int as total_score
+  from all_contributions
   group by session_id
+), per_session_tags as (
+  -- Separate aggregation so empty-tag answers don't drop their score
+  -- contribution (the previous version cross-joined unnest(tags) which
+  -- annihilated rows when every tag array was empty).
+  select ac.session_id, jsonb_object_agg(t.tag, t.cnt) as tag_counts
+  from (
+    select session_id, tag, count(*) as cnt
+    from all_contributions, lateral unnest(tags) as tag
+    group by session_id, tag
+  ) t
+  join all_contributions ac on ac.session_id = t.session_id
+  group by ac.session_id
 )
 select
   s.id as session_id,
   s.quiz_id,
   s.start_time,
   s.end_time,
-  coalesce(ps.total_score, 0)::int as total_score,
-  coalesce(
-    (select jsonb_object_agg(tag, cnt) from (
-       select tag, count(*) as cnt
-       from unnest(coalesce(ps.flat_tags, '{}')) as tag
-       group by tag
-     ) t),
-    '{}'::jsonb
-  ) as tag_counts
+  coalesce(pss.total_score, 0)::int as total_score,
+  coalesce(pst.tag_counts, '{}'::jsonb) as tag_counts
 from public.session s
-left join per_session ps on ps.session_id = s.id;
+left join per_session_score pss on pss.session_id = s.id
+left join per_session_tags pst on pst.session_id = s.id;
