@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { quizSchemaFor, type AIQuiz } from "./schemas";
 import { validateAIQuiz } from "./validators";
+import { normalizeIdsForCreate } from "./normalize";
 import { buildCreateSystemPrompt, buildCreateUserPrompt } from "./prompts";
 import { env } from "@/lib/env";
 import { ANTHROPIC_MODEL, type QuizType } from "@/lib/constants";
@@ -35,7 +36,9 @@ export async function createQuizFromPrompt(
     );
   }
 
-  const quiz = message.parsed_output as AIQuiz;
+  // Replace AI-generated placeholder IDs with server-generated UUIDs so the
+  // DB always sees Postgres-valid UUIDs. (See lib/ai/normalize.ts.)
+  const quiz = normalizeIdsForCreate(message.parsed_output as AIQuiz);
   validateAIQuiz(quiz);
   return quiz;
 }

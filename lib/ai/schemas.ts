@@ -1,29 +1,37 @@
 import { z } from "zod";
 import type { QuizType } from "@/lib/constants";
 
+// We don't constrain id format at the AI schema level. The Zod regex never
+// reaches Anthropic's structured-output validator (it strips down to bare
+// `{type: "string"}`), so the model generates inconsistent UUID-ish strings.
+// Instead we accept any non-empty string and rewrite IDs server-side via
+// normalizeIdsForCreate / normalizeIdsForEdit. This guarantees Postgres-valid
+// UUIDs without making the AI a UUID-generation specialist.
+const uuidShape = z.string().min(1);
+
 const baseQuestionFields = {
-  id: z.uuid(),
+  id: uuidShape,
   text: z.string().min(1),
   type: z.enum(["multiple_choice", "select_multiple", "slider"]),
   position: z.number().int().min(0),
 };
 
 const scoreOption = z.object({
-  id: z.uuid(),
+  id: uuidShape,
   text: z.string().min(1),
   position: z.number().int().min(0),
   score: z.number().int().min(0),
 });
 
 const tagOption = z.object({
-  id: z.uuid(),
+  id: uuidShape,
   text: z.string().min(1),
   position: z.number().int().min(0),
   tags: z.array(z.string().min(1)).min(1),
 });
 
 const result = z.object({
-  id: z.uuid(),
+  id: uuidShape,
   title_text: z.string().min(1),
   description: z.string(),
   cta_text: z.string(),
@@ -32,7 +40,7 @@ const result = z.object({
 });
 
 const baseQuiz = {
-  id: z.uuid(),
+  id: uuidShape,
   title: z.string().min(1),
   description: z.string(),
 };

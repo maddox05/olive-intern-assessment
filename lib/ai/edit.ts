@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { quizSchemaFor, type AIQuiz } from "./schemas";
 import { validateAIQuiz } from "./validators";
+import { normalizeIdsForEdit } from "./normalize";
 import { buildEditSystemPrompt, buildEditUserPrompt } from "./prompts";
 import { env } from "@/lib/env";
 import { ANTHROPIC_MODEL } from "@/lib/constants";
@@ -38,17 +39,18 @@ export async function editQuizFromPrompt(
     );
   }
 
-  const next = message.parsed_output as AIQuiz;
+  const raw = message.parsed_output as AIQuiz;
 
-  if (next.type !== currentQuiz.type) {
+  if (raw.type !== currentQuiz.type) {
     throw new Error(
-      `AI tried to change quiz type from ${currentQuiz.type} to ${next.type}. Quiz types are immutable.`
+      `AI tried to change quiz type from ${currentQuiz.type} to ${raw.type}. Quiz types are immutable.`
     );
   }
-  if (next.id !== currentQuiz.id) {
-    // Force the quiz id to stay stable so apply_quiz_diff updates the right row
-    next.id = currentQuiz.id;
-  }
+
+  // Walk the new quiz alongside the original. Keep AI ids that match an
+  // existing row (so apply_quiz_diff updates in place) and mint fresh UUIDs
+  // for genuinely new items. Forces the quiz id to stay stable.
+  const next = normalizeIdsForEdit(raw, currentQuiz);
 
   validateAIQuiz(next);
   return next;
