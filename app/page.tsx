@@ -1,23 +1,34 @@
-export default function Home() {
+import { TopStats } from "@/components/admin/TopStats";
+import { QuizGrid } from "@/components/admin/QuizGrid";
+import { getTopStats, listQuizzes } from "@/lib/dashboard-queries";
+
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const [stats, quizzes] = await Promise.all([getTopStats(), listQuizzes()]);
+
   return (
-    <div className="mx-auto flex max-w-6xl flex-col items-center pt-16 text-center">
-      <p className="text-sm font-semibold uppercase tracking-widest text-olive-deep/60">
-        Olive Quiz Studio
-      </p>
-      <h1 className="mt-4 text-5xl font-extrabold text-olive-deep">
-        Type a quiz. Ship a quiz.
-      </h1>
-      <p className="mt-3 max-w-2xl text-lg text-olive-deep/70">
-        Describe the funnel you want — a score quiz, a shareable card quiz, or a
-        personality tag quiz — and we'll generate it, host it, and tell you
-        exactly where people drop off.
-      </p>
-      <div className="mt-10 olive-tile w-full max-w-md p-6">
-        <p className="text-sm text-olive-deep/70">
-          Phase 1 is live. The dashboard, taker, editor, and stats land in the
-          next phases.
+    <div className="mx-auto max-w-6xl">
+      <header className="mt-4 max-w-3xl">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-olive-deep/55">
+          Dashboard
         </p>
-      </div>
+        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-olive-deep sm:text-4xl">
+          Your quizzes
+        </h1>
+        <p className="mt-2 text-base text-olive-deep/70">
+          Generate a new quiz from a single prompt, or jump into stats and
+          edits for what&apos;s already running.
+        </p>
+      </header>
+
+      <section className="mt-7">
+        <TopStats stats={stats} />
+      </section>
+
+      <section className="mt-8 pb-8">
+        <QuizGrid quizzes={quizzes} />
+      </section>
     </div>
   );
 }
