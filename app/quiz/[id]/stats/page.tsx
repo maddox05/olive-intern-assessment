@@ -88,12 +88,18 @@ export default async function StatsPage({
       ? await getScoreDistribution(id, sessionFilter)
       : null;
   const tagData = quiz.type === "tag" ? await getTagAnalytics(id, sessionFilter) : null;
+  // Defense-in-depth: a UNIQUE(session_id, result_id) constraint on
+  // result_screen_clicked already prevents double-counting, but clamp at
+  // 100% in case any pre-constraint rows ever sneaked in.
   const ctaClickRatePct =
     scoreData == null
       ? null
       : completedCount === 0
         ? null
-        : Math.round((scoreData.ctaClicks / completedCount) * 100);
+        : Math.min(
+            100,
+            Math.round((scoreData.ctaClicks / completedCount) * 100)
+          );
 
   const trace = sessionFilter ? await getSessionTrace(sessionFilter) : null;
 
