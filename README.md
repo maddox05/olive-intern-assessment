@@ -1,114 +1,138 @@
-# Olive Intern Assessment — Text-to-Quiz
+# Olive Quiz Studio — Text-to-Quiz
 
-This is the scaffold for the Olive technical interview. Read the assessment brief we sent you first. This README only covers how to get the project running locally.
+A working prototype of an AI quiz funnel generator. You describe a quiz in plain text, Sonnet 4.6 produces a structured spec, the spec gets persisted to Supabase as normalized rows, and the quiz goes live at `/quiz/[id]`. Anonymous takers fill it out, every answer is captured, and the dashboard shows you funnel drop-off, time per question, device/browser/referrer breakdowns, distribution charts, and a per-session deep-dive.
 
----
-
-## What's in the box
-
-- **Next.js 16** (App Router) + **TypeScript** + **Tailwind v4**
-- **shadcn/ui** initialized with `Button` as a starter
-- **Supabase** local dev (Postgres + Studio + Auth) configured with **declarative schemas**
-- **LLM SDKs** already installed: `@anthropic-ai/sdk` and `openai`. Pick one.
-- **Zod** for runtime validation
-- Empty `DECISIONS.md` template you'll fill in as you build
-
-What's *not* in the box: a quiz schema, prompts, routes, components beyond `Button`, or any tables. That's the assessment.
+Read [`DECISIONS.md`](./DECISIONS.md) for the trade-off log; read [`ai/docs/plan.md`](./ai/docs/plan.md) for the phased build plan that produced this code.
 
 ---
 
-## Prerequisites
-
-- **Node 20+** (`.nvmrc` pins to 20)
-- **pnpm** (`corepack enable` or install via your package manager)
-- **Docker** — required for Supabase local dev
-- **Supabase CLI** — `brew install supabase/tap/supabase` on macOS
-
----
-
-## Setup
+## Quick start
 
 ```bash
-# 1. Install deps
+# 1. Install
 pnpm install
 
-# 2. Copy env template and fill in LLM key(s)
+# 2. Env (Anthropic key is required; Supabase keys are filled by `pnpm supabase status`)
 cp .env.example .env.local
+# edit .env.local — paste an ANTHROPIC_API_KEY
 
-# 3. Start Supabase local stack (Postgres + Studio + Auth)
+# 3. Start the local Supabase stack (Postgres + Studio + REST + auth)
 pnpm supabase start
+# Copy the printed Publishable + Secret keys into .env.local
+# (NEXT_PUBLIC_SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY)
 
-# 4. Paste the printed anon key and service role key into .env.local
+# 4. Apply migrations + seed the 3 example quizzes
+pnpm supabase db reset
 
-# 5. Run the app
+# 5. Run
 pnpm dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. Supabase Studio is at http://127.0.0.1:54323.
 
-Supabase Studio runs at http://127.0.0.1:54323 once `supabase start` finishes.
+The seed populates 3 example quizzes (one per type) with simulated takes so the dashboard and stats pages have data immediately.
 
 ---
 
-## Database schema — declarative pattern
+## What's implemented
 
-We use **declarative schemas**, not hand-written migrations. You edit `CREATE TABLE` statements in `supabase/schemas/`, and the CLI generates migrations from the diff.
+### `/` — Admin dashboard
+- Top stats: total quizzes, total sessions, completion rate, the worst-performing quiz (by incompletion rate, live calc with no minimum-N gate).
+- Plus-card-first quiz grid with type pill, question count, sessions started/completed, Take/Stats/Edit buttons.
+- "Create a new quiz" dialog — pick a type (score / card / tag), describe what you want, generate. Lands you on the editor.
 
-```
-supabase/schemas/
-├── 00_cleanup/      # DROPs for objects being removed
-├── 10_enums/        # PostgreSQL ENUM types
-├── 20_functions/    # Database functions
-├── 30_tables/       # Table definitions
-├── 35_triggers/     # Triggers
-├── 40_views/        # Views
-└── 90_rls/          # Row Level Security policies
-```
+### `/quiz/[id]` — Public quiz taker
+- Sky / cloud / rolling-hills aesthetic that matches the screenshot in `ai/screenshots/1.jpeg`.
+- Three question components (multiple_choice tile-grid, select_multiple with checkbox affordance, slider with value bubble).
+- Three result components (Score with score circle, Card with random olive-gold badge SVG + share button, Tags with tally bars).
+- Session/answer/end captured via Server Actions. Device, browser, referrer, user-agent captured client-side from `navigator.userAgent` + `document.referrer`.
 
-### Adding a table
+### `/quiz/[id]/edit` — Editor
+- Two simultaneous editing paths: a JSON pane (validates against the same Zod + post-parse validators as the AI path) and an AI prompt panel.
+- Schema-docs side panel with collapsible sections per quiz type.
+- "Edits go live immediately" warning banner — locked design decision: no snapshots, hard delete + cascade.
 
-```bash
-# 1. Write your CREATE TABLE in supabase/schemas/30_tables/10_quizzes.sql
+### `/quiz/[id]/stats` — Analytics
+- 4-tile top stats (Started/Completed/Completion%/Q count).
+- Funnel by question reached (with inter-rung drop-off labels).
+- Average time per question (q1 measured from session.start_time; final measured to session.end_time on completion; abandoned-final excluded).
+- Per-type panel: score = histogram + result-bucket distribution + averages + CTA click rate; card = same; tag = per-tag counts + drop-off-by-tag.
+- Device / browser / referrer breakdown.
+- Recent sessions table — click any row to deep-dive (`?session=<uuid>`); every chart on the page filters to that one session and a per-answer trace appears.
 
-# 2. Generate a migration from the diff
-pnpm supabase db diff -f add_quizzes
-
-# 3. Apply locally
-pnpm supabase db reset
-```
-
-> `supabase db reset` drops the local DB and replays all migrations in order. Good for getting to a clean state.
+### `/api/ai/create` and `/api/ai/edit`
+- `POST` route handlers. Sonnet 4.6 with `client.messages.parse({ output_config: { format: zodOutputFormat(schema) } })`.
+- `maxRetries: 0` — fast fail, surface validator errors as 422 with a human-readable message that the client `alert()`s. (See DECISIONS for the rationale.)
 
 ---
 
 ## Project layout
 
 ```
-app/                 # Next.js App Router
-components/ui/       # shadcn components (start with button.tsx)
-lib/                 # Utilities (cn helper from shadcn)
+app/
+├── page.tsx                       # Admin dashboard
+├── api/ai/{create,edit}/route.ts  # AI route handlers
+└── quiz/[id]/
+    ├── page.tsx + QuizRunner.tsx  # Taker
+    ├── actions.ts                 # Session lifecycle Server Actions
+    ├── edit/page.tsx + EditorClient.tsx + actions.ts
+    └── stats/page.tsx
+components/
+├── layout/   # SkyHillsBackground, AppShell, OliveLogo
+├── taker/    # ProgressBar, StartScreen, QuizCard, Question*, Result*, badges/
+├── admin/    # TopStats, QuizGrid, QuizCard, CreateQuizCard, CreateQuizDialog
+├── editor/   # JsonEditor, AiEditPanel, SchemaDocs, NoSnapshotWarning
+├── stats/    # FunnelSvg, TimePerQuestionBars, {Score,Card,Tag}Panel, MetaBreakdown, SessionsList, SessionDeepDive, PanelShell
+└── ui/       # shadcn (Button)
+lib/
+├── ai/       # schemas (3 variants), validators, prompts, create, edit, normalize
+├── supabase/ # server.ts, browser.ts, types.ts (auto-generated)
+├── analytics-queries.ts
+├── dashboard-queries.ts
+├── quiz-persistence.ts
+├── client-meta.ts
+├── constants.ts, env.ts, types.ts, utils.ts
 supabase/
-├── config.toml      # Local stack config
-├── schemas/         # Declarative DDL (source of truth)
-└── migrations/      # Auto-generated from schema diffs
+├── config.toml
+├── schemas/   # Declarative DDL (source of truth) — 7 tables, 2 fns, view, triggers
+├── migrations/
+└── seed.sql   # 3 example quizzes + simulated takes
+ai/
+├── docs/{my_spec.md, given_spec.md, plan.md}
+└── screenshots/
 ```
 
 ---
 
-## What to submit
+## Schema diff workflow
 
-Per the assessment brief:
-
-1. Working prototype — someone types a description, gets a live quiz, takes it, responses land in the dashboard
-2. `DECISIONS.md` filled in
-3. Your prompts committed to the repo (put them wherever makes sense — e.g. `prompts/`)
-4. 3 example generated quizzes with input prompt + spec + live URL + results screenshot
-5. 2-3 min screen recording of the end-to-end flow
+```bash
+# Edit a CREATE TABLE in supabase/schemas/30_tables/...
+pnpm supabase db diff -f your_change_name
+pnpm supabase db reset    # applies migrations + replays seed
+pnpm supabase gen types typescript --local > lib/supabase/types.ts
+```
 
 ---
 
-## A note on AI tooling
+## Stack
 
-Use whatever helps you ship. We use Claude Code at Olive. What matters is the product decisions, not whether you typed every character yourself.
+- **Next.js 16.2.4** (App Router, async params, Server Actions, Route Handlers)
+- **React 19.2** (`useActionState`, `useTransition`)
+- **Tailwind v4** + **shadcn/ui** (base-nova) + custom olive palette in `globals.css`
+- **Anthropic SDK 0.90** with the `zodOutputFormat` helper for structured generation
+- **Supabase JS 2.104** (service-role on server, anon on browser; no `@supabase/ssr` for MVP)
+- **Zod 4** for schemas
+- **Postgres 17** (local Supabase) with a plpgsql `apply_quiz_diff(jsonb)` for atomic create+edit persistence
 
-Good luck.
+---
+
+## What's not in the box
+
+Per the kill list in the build plan: no auth/RLS, no quiz versioning, no soft-delete, no branching logic, no free-text or image questions, no mid-quiz resume across sessions, no A/B, no embeddable widget, no per-quiz custom theming, no unit tests (manual smoke only). See [`DECISIONS.md`](./DECISIONS.md) for "what I'd do differently with more time."
+
+---
+
+## A note on the build process
+
+This repo was built phase-by-phase in collaboration with Claude. Every commit is atomic and self-explanatory; the message bodies double as a build journal. The build plan is checked in at [`ai/docs/plan.md`](./ai/docs/plan.md).
