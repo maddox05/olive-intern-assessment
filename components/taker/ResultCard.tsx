@@ -2,7 +2,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { QuizCard } from "./QuizCard";
-import { pickBadgeForSession } from "./badges";
+import {
+  OliveBadgeA,
+  OliveBadgeB,
+  OliveBadgeC,
+  pickBadgeIndexForSession,
+} from "./badges";
 import {
   clickResultCtaAction,
   endSessionAction,
@@ -18,7 +23,7 @@ export function ResultCard({
   matched: ResultRow | null;
   quizTitle: string;
 }) {
-  const Badge = useMemo(() => pickBadgeForSession(sessionId), [sessionId]);
+  const badgeIdx = useMemo(() => pickBadgeIndexForSession(sessionId), [sessionId]);
   const ended = useRef(false);
   const [shareNote, setShareNote] = useState<string | null>(null);
 
@@ -70,7 +75,13 @@ export function ResultCard({
             filter: "blur(8px)",
           }}
         />
-        <Badge className="relative h-44 w-44 drop-shadow-[0_8px_18px_rgba(163,123,28,0.35)]" />
+        {badgeIdx === 0 ? (
+          <OliveBadgeA className="relative h-44 w-44 drop-shadow-[0_8px_18px_rgba(163,123,28,0.35)]" />
+        ) : badgeIdx === 1 ? (
+          <OliveBadgeB className="relative h-44 w-44 drop-shadow-[0_8px_18px_rgba(163,123,28,0.35)]" />
+        ) : (
+          <OliveBadgeC className="relative h-44 w-44 drop-shadow-[0_8px_18px_rgba(163,123,28,0.35)]" />
+        )}
       </div>
       <p className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-olive-deep/60">
         Your badge

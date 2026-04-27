@@ -171,29 +171,33 @@ export async function getTimePerQuestion(
   }
 
   // For each question, collect the per-session time spent on it.
+  // Locked decision #17:
+  //   - Q1 time: q1.answered - session.start
+  //   - Middle: q[i].answered - q[i-1].answered
+  //   - Final question of the QUIZ when this session completed: end - q.answered
+  //   - Final question of the QUIZ when this session abandoned: excluded
+  // A session's last *answered* question is only treated as the "final" question
+  // when arr.length === questions.length AND end_time is set. For abandoned
+  // sessions, every answered question still gets the normal cur-prev measurement.
   const buckets = new Map<string, number[]>();
+  const totalQuestions = questions.length;
   for (const [sid, arr] of bySession) {
     const sess = sessionMap.get(sid);
     if (!sess) continue;
     const startMs = new Date(sess.start_time).getTime();
     const endMs = sess.end_time ? new Date(sess.end_time).getTime() : null;
+    const completed = arr.length === totalQuestions && endMs != null;
     for (let i = 0; i < arr.length; i++) {
       const cur = arr[i];
       const curMs = new Date(cur.answeredAt).getTime();
-      let prevMs: number;
-      if (i === 0) {
-        prevMs = startMs; // Q1 time = q1.answered_at - session.start_time
-      } else {
-        prevMs = new Date(arr[i - 1].answeredAt).getTime();
-      }
       let secs: number;
-      if (i === arr.length - 1) {
-        // Final answered question — use session.end_time only if set;
-        // otherwise (abandonment) we don't measure THIS time. Per locked
-        // decision #17, abandoned final-question times are excluded.
-        if (endMs == null) continue;
-        secs = (endMs - prevMs) / 1000;
+      if (i === 0) {
+        secs = (curMs - startMs) / 1000;
+      } else if (completed && i === arr.length - 1) {
+        // end_time is non-null when completed === true
+        secs = ((endMs as number) - curMs) / 1000;
       } else {
+        const prevMs = new Date(arr[i - 1].answeredAt).getTime();
         secs = (curMs - prevMs) / 1000;
       }
       if (!Number.isFinite(secs) || secs < 0) continue;

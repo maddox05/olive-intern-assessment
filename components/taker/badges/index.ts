@@ -1,21 +1,20 @@
-import { OliveBadgeA } from "./OliveBadgeA";
-import { OliveBadgeB } from "./OliveBadgeB";
-import { OliveBadgeC } from "./OliveBadgeC";
+export { OliveBadgeA } from "./OliveBadgeA";
+export { OliveBadgeB } from "./OliveBadgeB";
+export { OliveBadgeC } from "./OliveBadgeC";
 
-const BADGES = [OliveBadgeA, OliveBadgeB, OliveBadgeC] as const;
+export const BADGE_COUNT = 3;
 
 /**
- * Pick one of the 3 olive-gold badges. Stable per session-id (so refreshes
- * show the same badge), but pseudo-random across users — exactly the
- * locked-decision #20 + #9c behavior.
+ * Pick a stable index 0..2 for one of the 3 olive-gold badges. Stable per
+ * session-id (so refreshes show the same badge), but pseudo-random across
+ * users. The renderer renders the matching badge component statically —
+ * returning a component type from a hook trips React's static-components
+ * lint rule.
  */
-export function pickBadgeForSession(sessionId: string) {
+export function pickBadgeIndexForSession(sessionId: string): number {
   let h = 0;
   for (let i = 0; i < sessionId.length; i++) {
     h = (h * 31 + sessionId.charCodeAt(i)) | 0;
   }
-  const idx = Math.abs(h) % BADGES.length;
-  return BADGES[idx];
+  return Math.abs(h) % BADGE_COUNT;
 }
-
-export { OliveBadgeA, OliveBadgeB, OliveBadgeC };
