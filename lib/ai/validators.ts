@@ -33,6 +33,16 @@ export function validateAIQuiz(quiz: AIQuiz): void {
   // For score and card quizzes: result ranges must cover [0, maxPossibleScore]
   // with no gaps, no overlaps.
   if (quiz.type === "score" || quiz.type === "card") {
+    // Score and card both need at least one result row; check this BEFORE
+    // dereferencing sorted[0] below.
+    if (quiz.results.length < 1) {
+      throw new QuizValidationError(
+        quiz.type === "card"
+          ? "Card quizzes need at least one result row to anchor the badge title and description."
+          : "Score quizzes need at least one result row."
+      );
+    }
+
     const maxScore = quiz.questions.reduce((sum, q) => {
       const optionMax = Math.max(
         ...q.options.map((o) => ("score" in o ? (o.score ?? 0) : 0))
@@ -72,13 +82,6 @@ export function validateAIQuiz(quiz: AIQuiz): void {
     }
   }
 
-  // Card quizzes need at least one result row (Zod also enforces .min(1))
-  if (quiz.type === "card" && quiz.results.length < 1) {
-    throw new QuizValidationError(
-      "Card quizzes need at least one result row to anchor the badge title and description."
-    );
-  }
-
   // Tag quizzes have no result rows — Zod enforces .max(0); double-check here
   if (quiz.type === "tag" && quiz.results.length !== 0) {
     throw new QuizValidationError(
@@ -86,13 +89,21 @@ export function validateAIQuiz(quiz: AIQuiz): void {
     );
   }
 
-  // Validate CTA URLs (Zod already does, but redundant try is cheap insurance)
+  // Validate CTA URLs. Zod's z.url() accepts any parseable URL — including
+  // javascript: and data: schemes that would XSS at click time. Restrict to
+  // http(s) only and re-confirm parseability.
   for (const r of quiz.results) {
+    let parsed: URL;
     try {
-      new URL(r.cta_url);
+      parsed = new URL(r.cta_url);
     } catch {
       throw new QuizValidationError(
         `Result "${r.title_text}" has an invalid CTA URL: ${r.cta_url}`
+      );
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new QuizValidationError(
+        `Result "${r.title_text}" has an unsupported CTA URL scheme (${parsed.protocol}). Only http: and https: are allowed.`
       );
     }
   }
