@@ -6,6 +6,15 @@ import type { ClientMeta } from "@/app/quiz/[id]/actions";
  * sessions on the analytics page. Falls back to "Other" for unknowns.
  */
 function parseDevice(ua: string): string {
+  // iPadOS 13+ Safari sends a Mac UA without "iPad" — disambiguate via
+  // touchPoints. (https://stackoverflow.com/a/58065241)
+  if (
+    typeof navigator !== "undefined" &&
+    /Mac/.test(ua) &&
+    (navigator.maxTouchPoints ?? 0) > 1
+  ) {
+    return "Tablet";
+  }
   if (/Mobi|Android|iPhone|iPod/i.test(ua)) return "Mobile";
   if (/iPad|Tablet/i.test(ua)) return "Tablet";
   if (/Mac|Win|Linux|X11/i.test(ua)) return "Desktop";
@@ -32,7 +41,8 @@ function parseReferrer(raw: string): string | null {
     }
     return u.host;
   } catch {
-    return raw.slice(0, 200);
+    // Don't leak the raw URL (may contain UTM, session tokens, PII).
+    return "(other)";
   }
 }
 
