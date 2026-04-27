@@ -45,22 +45,37 @@ export function ResultCard({
     if (matched.cta_url) window.open(matched.cta_url, "_blank", "noopener");
   };
 
+  const flashShareNote = (msg: string) => {
+    setShareNote(msg);
+    setTimeout(() => setShareNote(null), 2500);
+  };
+
   const handleShare = async () => {
     const url = typeof window !== "undefined" ? window.location.href : "";
     const text = `I got "${matched?.title_text ?? "a result"}" on ${quizTitle}!`;
+    // Prefer native share when available (mobile, modern browsers).
     if (typeof navigator !== "undefined" && "share" in navigator) {
       try {
         await navigator.share({ title: quizTitle, text, url });
+        flashShareNote("Shared!");
         return;
-      } catch {
-        // fall through to clipboard
+      } catch (e) {
+        // User canceled the share sheet — DOMException name "AbortError".
+        // Don't fall back to clipboard in that case.
+        if ((e as Error).name === "AbortError") return;
+        // Any other failure (e.g. share unsupported in iframe) → fall through.
       }
     }
     if (typeof navigator !== "undefined" && navigator.clipboard) {
-      await navigator.clipboard.writeText(`${text} ${url}`);
-      setShareNote("Copied to clipboard");
-      setTimeout(() => setShareNote(null), 2500);
+      try {
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        flashShareNote("Copied to clipboard");
+        return;
+      } catch {
+        // Clipboard blocked — fall through to error message.
+      }
     }
+    flashShareNote("Couldn't share — copy the URL manually");
   };
 
   return (
