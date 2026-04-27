@@ -1,223 +1,124 @@
 # DECISIONS.md
 
-A short, honest log of the choices made while building Text-to-Quiz. Read top-down; the "I'd do this differently with more time" list at the bottom is the most useful section for thinking about scale-up.
+A short log of the product and technical decisions you made while building Text-to-Quiz. Keep it honest — tradeoffs and "I'd do this differently with more time" are as valuable as wins.
+
+Overall: I went for speed and simplicity.
 
 ---
 
 ## Quiz spec schema
 
-The AI emits a single JSON object that validates against a Zod schema variant chosen per quiz type. Three variants share a base; they differ at the option and result level.
+<!-- What shape does a generated quiz take? Why those fields? What did you deliberately leave out? -->
 
-```ts
-{
-  id: uuid,                          // stable across edits
-  type: "score" | "card" | "tag",    // immutable for an existing quiz
-  title: string,
-  description: string,
-  questions: [{
-    id: uuid,
-    text: string,
-    type: "multiple_choice" | "select_multiple" | "slider",
-    position: number,                // explicit ordering, NOT created_at
-    options: [{
-      id: uuid,
-      text: string,
-      position: number,
-      score?: number,                // present for score/card; absent for tag
-      tags?: string[],               // present for tag; absent for score/card
-    }]
-  }],
-  results: [{
-    id: uuid,
-    title_text: string,
-    description: string,
-    cta_text: string,
-    cta_url: string (URL),
-    range: [number, number],         // [lo, hi] inclusive
-  }]   // empty for tag quizzes
-}
-```
+A quiz is output as json, then translated to supabase tables (4 tables, quiz , questions in the quiz, options in the question, results in the quiz)
+thier are 3 quiz types, I went with Card Quiz, Scoring Quiz, and Tags Quiz.
+these allow for pretty abstracted results, without the quiz json being to abstract where the ai makes mistakes consitently
+it allows for results based on tags and a score, where tags define user traits, and a score defines some sort of rating, which im assuiming all quizzes have
 
-**Why these fields, not others:**
+Build me a quiz that helps someone figure out if they're eating too much ultra-processed food. -> "UPF eater vs crunchy mom" scoring with tags like "Shelf Aware" "newbie" "momma bear"
 
-- **Three quiz types instead of one polymorphic shape**: the result-screen logic and the AI's prompt vary so meaningfully across "score with bucketed results", "shareable badge", and "tag tally" that a single mega-schema would have given the model too many ways to be wrong. Three small schemas → three smaller prompt surfaces → fewer retries.
-- **`position` int instead of "ordered by `created_at`"**: the original spec ordered questions by created_at, but that fights you the second the user reorders during an edit (you'd have to fake timestamps). Explicit position means edits are obvious and `created_at` keeps meaning "when this row was made."
-- **`range_lo` / `range_hi` columns instead of `range numeric[2]`**: makes `score BETWEEN range_lo AND range_hi` index-friendly and lets Postgres enforce `range_lo <= range_hi` as a CHECK.
-- **No branching**: scope-cut. Branching needs a graph schema and a runtime that can choose-your-own-adventure; given the time budget I went additive-scoring-only.
+Fun 5-question quiz: 'What kind of eater are you?' with silly personality-style answers. -> again a scoring scale similar to "UPF eater vs crunchy mom" with tags similar to above
 
-**Deliberately left out:**
+- where for this one above the score determines the card they recieve (Food Color Lover -> On A Path To Food Freedom -> Momma Bear Crunchy mom)
 
-- Question types beyond MC / select-multiple / slider (no free-text, no image, no rating-scale).
-- Per-option weighting beyond a flat `score` integer. (Equivalent to "every question contributes equally"; weighted questions can be encoded by giving heavier questions higher option scores.)
-- Multiple result dimensions per quiz (e.g. axes like Big Five). One axis only — score or tags.
-- Branching, conditional questions, randomized question order at runtime.
+Im not sure if their is an exact item i left out here, but I think the shortfalling here is it isnt abtracted enough that meaning you want a generalized onboarding creator that can adapt to the user, and while this is adaptable, that is only when we add new quiz types for example. but that is a tradeoff I took and listed at the end!
 
 ## LLM choice
 
-**Provider:** Anthropic. **Model:** `claude-sonnet-4-6` for both create and edit, no escalation on retry.
+<!-- Which provider and model did you use? Why? Cost-per-quiz estimate? -->
 
-**Why Sonnet 4.6 specifically:**
+I went with anthropic as im familiar, and you all use claude code (my assumption is you guys use anthropic).(although it makes switching harder as they dont fully support openai api).
 
-- The structured-output surface (`messages.parse` + `zodOutputFormat`) is a native helper in the Anthropic SDK 0.90 — single function call, automatic Zod validation, no manual JSON-extraction or `tool_use`-shaped boilerplate.
-- Sonnet 4.6 is the right cost/quality tradeoff for "follow a tightly-defined schema and write friendly copy." Opus 4.7 would be ~5× more per quiz with no schema-compliance gain on this task — generating quiz copy isn't reasoning-bound. I considered Opus-on-retry but that disappears once you decide not to retry at all (see Prompt reliability below).
-- The `output_config: { format: zodOutputFormat(schema) }` integration produces typed `parsed_output` directly — no second-pass parsing.
+I went with sonnet 4.6 as it's cheaper than the thinking models, and in my usage of it, it has been super great for daily tasks, and sticks to the schema and makes genuinely good quizzes.
 
-**Cost per quiz** (Sonnet 4.6 list pricing: $3 / MTok input, $15 / MTok output):
-
-- **Create**: ~1,650 in + ~2,200 out → **$0.038/call**
-- **Edit**: ~3,800 in + ~2,300 out → **$0.046/call**
-- **Round number**: ~4¢ per generation, ~5¢ per edit. A creator iterating 5 times to land a quiz spends ~$0.25.
-
-System prompt is ~1,500 tokens. The biggest cost lever I'd pull next is prompt caching the system prompt (it's identical for every create call) — Anthropic supports `cache_control` and would save ~90% of input cost.
+see cost per quiz estimate in the cost section
 
 ## Question type vocabulary
 
-Three components, all share `(question, options, onAnswer, pending)` props:
+<!-- Which question types does your system support? Which did you skip and why? -->
 
-- **`multiple_choice`** — tile grid, single click advances. Stored as `option_chosen_id`.
-- **`select_multiple`** — tile grid with checkbox affordance, Continue button enables when ≥1 selected. Sums scores / unions tags. Stored as `selected_option_ids uuid[]`.
-- **`slider`** — native range input styled olive, value bubble above thumb, 0 → max(option.score). Stored as `numeric_answer int`.
-
-A CHECK constraint on `questions_answered` enforces exactly one of those three columns is non-null per row.
-
-**Skipped:**
-
-- **Free-text input** — no good way to score it without another LLM call at take time, which is expensive and slow.
-- **Image-pick** — needs an asset pipeline; out of scope.
-- **Yes/no** — degenerate case of multiple_choice.
-- **Rating scale** — slider covers it.
+I went with slider, MCQ, select multiple and yes/no and did not do free text or image based
+my schema has scores and tags only each question has a score it gives and tags it gives you.
+while free text would be pretty easily to implement with my system (user writes text and ai takes that into a score/tags) I have not added it due to time, but this is something that would be an easy additon
+for image based, given I have some freedom with what to add, I think its cool in theory, but most people wouldnt be at a place to take images of what food they eat for example. and again i have time constraint.
 
 ## Scoring & results logic
 
-**Score quizzes**: every chosen option's `score` (or every selected option's score for select-multiple, or the slider's numeric value) sums into a total. The total is bucketed against the `results` table's `range_lo .. range_hi` to pick the title/description/CTA shown.
+<!-- How does scoring work? Weighting? Branching? Multiple result dimensions? What's in vs. out of scope? -->
 
-**Card quizzes**: identical math under the hood. The result text comes from the matched bucket; the *visual* is a randomly chosen olive-gold badge SVG (3 hand-drawn variants, picked by hashing the session ID so refreshes are stable). Decision #6/9c/20 in the convo: "card quiz will basically be the same as score, but depending on the score it shows a certain card. note this in decisions as a simplicity measure."
-
-**Tag quizzes**: every option carries `tags string[]`. We tally tags across the user's answers; the result screen shows the top tags with counts. No `results` table rows.
-
-**Validators that go beyond Zod shape** (post-parse, throw `QuizValidationError`):
-
-- non-slider questions have ≥2 options; slider questions have exactly 1
-- score/card result ranges cover `[0, max_possible_score]` with no gaps and no overlaps (sorted, first range starts at 0, each next `range[0] === prev[1] + 1`, last `range[1] >= maxScore`)
-- card needs ≥1 result; tag needs 0 results; all CTA URLs parse via `new URL()`
-- IDs are unique within a quiz
-
-These checks run server-side in `lib/ai/validators.ts` and surface as 422 on the route handlers.
-
-**Out of scope** (deliberate):
-
-- Weighted questions (you can simulate by raising option scores).
-- Multi-axis results (e.g. one tag-axis + one score-axis on the same quiz).
-- Branching: question N depends on answer to question N-1.
-- Adaptive scoring (e.g. confidence-weighted).
+I went for simplicity here, while abstracting a bit, but not too much where the ai gets confused. I went with Card Quiz, Scoring Quiz, and Tags Quiz.
+2 Of which use scoring, 1 uses tagging (user is a crunchy mom who also cares about EMF radiation).
+questions can be weighted based on the AI choices as scoring is simply a min and maximum.
+As a result of my schema results give you a score (quizzez assume a good to bad score rating, UPF eating vs crunchy mom) and tags you with certain traits.
+As such whats in scope is only these quiz types and any different types would require simple, but anyhow changes.
+You could use the tags to enable or disable certain features or views, and a score to start the user out at a certain location / feature set.
 
 ## Edit loop
 
-The user has **two simultaneous editors** on `/quiz/[id]/edit`:
+<!-- After the first generation, how does a user iterate? Full regeneration, spec patching, or direct editing? Why? -->
 
-1. **Direct JSON editing** in a textarea. Save validates against the same Zod + post-parse validators as the AI path before persisting. Bad JSON → `alert()` per locked decision #8.
-2. **AI editing** in a prompt box ("add a question about X", "make the results funnier"). Sonnet 4.6 receives the *current quiz JSON* + the user's instruction and returns a **full updated quiz JSON** — not a patch. We then diff it against the current rows server-side using a plpgsql function called `apply_quiz_diff(jsonb)`.
+the admin can iterate the same way the ai can, by editing the schema directly. The admin who i am assuming is sligthly technical gets access to the json and they can edit it directly, while the ai does a costly regeneration, editing what it needs to edit.
 
-**Why full-replacement instead of JSON patches:**
-
-- Anthropic's structured output is a sweet spot for "produce a complete object that matches a schema." Asking for a JSON Patch ("op": "add", "path": "...") is doable but doubles the prompt complexity and gives the model more ways to be wrong. Net cost is similar (the new quiz JSON is roughly the same size as a patch + context).
-- The diff is computed *server-side* via `apply_quiz_diff` (one Postgres function call) — UPSERTs by id, hard-deletes children whose ids are absent. The model just has to emit the full new state.
-
-**Why this preserves IDs across edits:**
-
-- The system prompt explicitly tells the model to **preserve UUIDs for items it kept**. We then back this up server-side: `normalizeIdsForEdit` walks the new quiz alongside the original, keeps any AI-supplied id that matches a known original, and mints a fresh `crypto.randomUUID()` for genuinely new items. So even when the model invents bad IDs for new items, the persistence layer always passes Postgres-valid UUIDs to `apply_quiz_diff` and stable rows update in place instead of being deleted-and-reinserted.
-
-**No snapshots:** the editor shows a warning banner — edits that remove a question cascade-delete the historical answers for that question. This was a locked decision (the trade-off for keeping the schema simple). For breaking changes, the recommendation in the banner is "create a new quiz."
+I choose these as if the admin has something easy to change, then let them do it without ai, and if they want to change something, lets make it easy for the ai to make such changes (hopefully it doesnt change other parts haha), and also easier for me to develop (a time tradeoff). I am assuming low amounts of edits. spec patching would be the best in my opinion, just most time consuming to develop.
 
 ## Prompt reliability
 
-Three layers of validation, in this order:
+<!-- How do you validate LLM output? Retries? Fallbacks? What happens when it returns garbage? -->
 
-1. **Anthropic structured output** (`messages.parse` + `zodOutputFormat(schema)`) — the model is constrained to JSON conforming to the Zod-derived JSON Schema. The SDK auto-validates and throws if parse fails.
-2. **Post-parse semantic validators** (`lib/ai/validators.ts`) — option counts, score-range coverage, URL validity, ID uniqueness. These can't be expressed in JSON Schema and run after parse succeeds.
-3. **Postgres constraints** — UUID format, FK integrity, the `exactly_one_answer` CHECK on `questions_answered`, the `result_range_valid` CHECK.
-
-**On failure: no retries, just `alert()`.** Locked decision #8 in the convo. The reasoning: in the demo audience (a technical user playing with the tool), a fast failure with a specific error message ("AI returned an invalid spec — Result ranges have a gap between [0,5] and [7,10]") is more actionable than silently retrying 3× and either delivering inconsistent results or wasting 30s on the wheel. The Anthropic SDK is configured with `maxRetries: 0` to make this explicit.
-
-For a production audience with non-technical users, you'd want at least one transparent retry — preferably *with the prior error appended to the prompt* so the model has context on what to fix. That's the obvious next move.
+I have the ai fail instantly on a failed zod validation. I use anthropics api which locks pretty well the ai into the schema and when it doesnt it fails
+I do this as the only ppeople generating will be others employees, as such id rather make it clear something went wrong, and if it keeps going wrong we can quickly fix it, instead of slowing things down or falling back.
+When it returns garbage it fails with a js alert, and the admin can retry.
 
 ## Data model
 
-Seven tables, all FK-cascaded:
+<!-- How are quizzes and responses stored? What does the quiz-creator dashboard actually show? -->
 
-```
-quiz (id, type, title, description, created_at, updated_at)
-  └── question (id, quiz_id, text, type, position, ...)
-        └── option (id, question_id, text, score?, tags[], position, ...)
-  └── result (id, quiz_id, title_text, description, cta_text, cta_url,
-              range_lo, range_hi, ...)
+I touched on how quizzes are store a bit at the start
 
-session (id, quiz_id, start_time, end_time?, device, browser, referrer, user_agent)
-  └── questions_answered (id, session_id, question_id,
-                          option_chosen_id? | numeric_answer? | selected_option_ids[]?,
-                          answered_at, ...)
-  └── result_screen_clicked (id, session_id, result_id, created_at)
-```
+- 4 tables, quiz , questions in the quiz, options in the question, results in the quiz
+  responses are store via another 3 tables, first I track sessions as I need to be able to tell if they started and stoped mid way and what time they did that, I also track questions answered as they go, to be able to tell when they drop and to recreate what they answered, and then at the end I created another table for if they clicked the CTA at the end, to track that.
 
-**The CHECK on `questions_answered`** enforces that *exactly one* of `option_chosen_id`, `numeric_answer`, `selected_option_ids` is set per row — so the renderer, the analytics queries, and the type system all agree on what kind of answer they're looking at.
-
-**`session_outcome` view** computes `total_score` and `tag_counts (jsonb)` per session by joining session → questions_answered → option (and unioning slider numeric values). This is the "compute on read" approach (locked decision #1) — no derived `session_outcomes` table to keep in sync. The view caught a real bug during smoke testing: a naive `lateral unnest(tags)` cross-joined with score contributions, dropping every score row when tags were empty arrays. The fix splits score and tag aggregations into separate CTEs and joins them at the top level.
-
-**`apply_quiz_diff(p_quiz jsonb)`** is the single SQL function used for both create and edit persistence: UPSERT by id, then delete child rows whose ids aren't in the input. This gives true atomicity in one round-trip — supabase-js doesn't expose Postgres transactions, so without this function an edit could half-apply on network failure.
-
-**Tracking** per locked decision #7: `device`, `browser`, `referrer`, `user_agent` columns directly on `session`. Captured client-side in `lib/client-meta.ts` from `navigator.userAgent` (lightweight regex, no UA-parser dependency) and `document.referrer` (with same-origin filtering so internal navigation doesn't pollute traffic stats), passed to the `startSession` Server Action.
-
-**The dashboard shows:**
-
-- Top stats: total quizzes, total sessions, completion rate (across all quizzes), the worst-performing quiz by incompletion rate (live calc, no minimum-N threshold per locked decision #16 — for the demo we want the data point even on tiny samples).
-- Quiz grid with type-pill, question count, sessions started/completed, Take/Stats/Edit links.
-- Per-quiz stats: 4-tile top stats (Started/Completed/Completion%/Q count), funnel by question reached, avg time per question, type-specific panel (score = histogram + bucket distribution; card = same; tag = per-tag counts + drop-off-by-tag), device/browser/referrer breakdown, recent sessions list with `?session=` deep-dive that filters every chart to a single session and shows the per-answer trace.
+for the quiz creator dashboard, TODODOODODOODOD
 
 ## Cost
 
-Sonnet 4.6 list pricing as of April 2026: **$3 / MTok input**, **$15 / MTok output**.
+<!-- Approximate $ per generated quiz. Show your math. -->
 
-**Per-create breakdown:**
+Model: Sonnet 4.6 — **$3 / MTok input, $15 / MTok output** (no caching).
 
-- System prompt: ~1,500 input tokens (shared rules + per-type rules + 1-2 few-shot examples)
-- User prompt: ~150 input tokens (the description)
-- Schema definition (sent as part of the structured-output config): minimal; included in system overhead
-- Output: 8-question quiz with 4 options each + 4 result tiers ≈ 2,200 output tokens
+**Formula**
 
-→ **0.00165 × $3 + 0.0022 × $15 ≈ $0.0379 per create**, call it **~$0.04**.
+```
+cost = (system_prompt + user_message_or_current_JSON + output_schema) * $3/MTok
+     + (generated_parsed_JSON)                                       * $15/MTok
+```
 
-**Per-edit breakdown:**
+**Token estimates** (eyeballed from `lib/ai/prompts.ts` + `lib/ai/schemas.ts`, output is an educated guess for a typical 6-question quiz with 3–4 options and 4 result tiers), i am not off by a factor of 10.
 
-- System prompt: ~1,500
-- Current quiz JSON: ~2,200
-- Edit instruction: ~80
-- Output: ~2,300
+**Create:** 1,650 × $3/MTok + 2,200 × $15/MTok = $0.0050 + $0.0330 ≈ **$0.038 / call**
 
-→ **0.0038 × $3 + 0.0023 × $15 ≈ $0.0459 per edit**, call it **~$0.05**.
+**Edit:** 3,800 × $3/MTok + 2,300 × $15/MTok = $0.0114 + $0.0345 ≈ **$0.046 / call**
 
-A creator iterating 5 times to land a quiz: ~25¢. Generating 1,000 quizzes: $40 in tokens. Cheapest improvement at scale: **prompt-cache the system prompt** (saves ~90% of input cost since the system block is identical across calls) — Anthropic SDK supports `cache_control: { type: 'ephemeral' }` on the system block. Not implemented in this MVP because cost wasn't a constraint at this stage.
+**~4¢ per create, ~5¢ per edit.** Output dominates (~85% of cost)
 
 ## What I'd do differently with more time
 
-- **Prompt caching on the system block** (90% input cost savings, ~5 minutes to add).
-- **Retries with error-feedback** instead of fast-fail: when the validators throw, send the error message back to the model and ask it to fix. Better UX for non-technical users; slightly more cost. The current fast-fail is right for a demo, not for prod.
-- **Versioned quizzes** (`quiz_version` row, sessions FK to a version): solves the "edits invalidate historical stats" trade-off cleanly. Not in this MVP because it doubles the data-model size.
-- **Shareable result OG images** via `next/og`: a per-session PNG that previews the matched result so social shares aren't just naked URLs.
-- **"Why this result?" expandable** on the result screen: show the score breakdown per question. Builds trust; exposes scoring bugs faster.
-- **Tag co-occurrence heatmap** in the tag panel: which tags tend to appear together? Useful for personalization features that need orthogonal axes.
-- **Branching support**: question N+1 depends on answer to question N. Needs a graph model and a runtime that can route — bigger lift but unlocks lead-gen funnels.
-- **CSV export from the stats page** (one button, dump completed sessions with answers). 30 minutes of work that pays off the moment a marketer wants to slice the data in a spreadsheet.
-- **Inline taker preview in the editor**: split the editor pane to show the live taker rendered from the current JSON without saving. Round-trips iteration time.
-- **Auth + multi-tenancy**: the current build is open — anyone with the URL can see admin/stats. RLS + a real auth provider would gate edits and per-org data.
-- **Better UA parsing**: today it's a 30-line regex. Swap for `ua-parser-js` if/when device/browser breakdowns become load-bearing.
-- **Streaming AI responses** for create: a 30s wait on the dialog feels slow. Anthropic SDK streams `parsed_output` incrementally; you could show the title appear, then questions one by one.
-- **A real chart library** (or hand-rolled SVG with axes/tooltips) for the score histogram. The current stacked-bar approach is fine for the demo but doesn't scale past ~30 score values.
+I would have abstracted the schema more, as the goal is to create this onboarding generator, so we can switch up onboarding all the time and AB test till we find the perfect one, this schema is more locked in, and was done for time purposes, as the more it's abstracted the harder it is for the ai.
 
-## Why-this-not-that footnotes
+free text would be pretty easily to implement with my system (user writes text and ai takes that into a score/tags) I have not added it due to time, but this is something that would be an easy additon
 
-- **Why Anthropic SDK 0.90 over the OpenAI SDK + structured outputs?** Both are good. I went Anthropic because (a) the assignment ships both keys and (b) `messages.parse` + `zodOutputFormat` is the cleanest API I've used for structured generation — no `response_format: { type: 'json_schema' }` boilerplate, no manual reparse, typed return.
-- **Why Server Actions for session lifecycle, route handlers for AI calls?** The dialog-based AI invocation needs a fetch() with handle-able errors and a router.push on success — that's a Route Handler. Session start/answer/end happen inside a `useTransition` and don't return data the client needs to render — Server Actions are the right tool.
-- **Why no `@supabase/ssr`?** No auth in MVP; service-role on server, anon on client is enough. Adding `@supabase/ssr` would be three extra files for zero present-day value.
-- **Why hand-rolled SVG funnel + bars instead of Recharts?** Funnel + simple horizontal bars need ~50 lines each. Recharts adds ~200kb to the bundle for one page. Worth it the moment we add a histogram with axes/legends/tooltips.
-- **Why a single olive aesthetic across admin AND taker?** Locked decision #19 — the screenshot is the visual north star for the whole app. The screenshot's sky/clouds/rolling-hills feel translates surprisingly well to a dashboard once the chart density stays low. If the dashboard had to show 20 widgets per row I'd revisit.
-- **Why does the editor have a JSON textarea, not a structured form?** Power users reach for JSON; the structured-form alternative is much more code. The schema-docs panel beside the editor explains the shape so the JSON path stays approachable.
+For editing, having ai use spec editing would have been the best (easiest for user, most cost effective, and very good control), but this would have taken the most time to get right, as such I went with a blend of full control and full AI redo.
+
+With more time, I would also and i think this is most important planned each part fully. With AI coding what I like to do is be the artictect, defining main functions components, the flow, everything, for example what exact stat lines I want to see on the graph
+
+- while I did do that, i left some other parts in the air, while I believe the ai did well on these parts, I want to code fast while also understanding the code and making sure its maintainable, which is why I like being the artictect. the ai found a few problems in my plan, which i believe with more time I would have thought of, although sometimes its good of thinking of things I didn't.
+
+Some things the ai did not abstract and did not code well, as a result as of the above.
+
+Badges: i think the badges are lackluster looking and
+
+## From Maddox
+
+here are some extras I think are important
+
+- some things I went a certain way as I dont have a full picture and I feel like the point is to get it done, not that everything is perfect (for example the CTA always goes to the olive home page, or using anthropic api over openai, I could have asked what you guys already use, but dont want y'all to take the time)
