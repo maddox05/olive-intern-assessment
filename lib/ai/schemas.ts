@@ -16,17 +16,14 @@ const baseQuestionFields = {
   position: z.number().int().min(0),
 };
 
-const scoreOption = z.object({
+// Every option carries BOTH a score AND tags, regardless of quiz type.
+// This is the dual-dimension model: the quiz type only switches WHICH
+// dimension drives the result screen, but stats surface both.
+const dualOption = z.object({
   id: uuidShape,
   text: z.string().min(1),
   position: z.number().int().min(0),
   score: z.number().int().min(0),
-});
-
-const tagOption = z.object({
-  id: uuidShape,
-  text: z.string().min(1),
-  position: z.number().int().min(0),
   tags: z.array(z.string().min(1)).min(1),
 });
 
@@ -52,7 +49,7 @@ export const scoreQuizSchema = z.object({
     .array(
       z.object({
         ...baseQuestionFields,
-        options: z.array(scoreOption).min(1),
+        options: z.array(dualOption).min(1),
       })
     )
     .min(1),
@@ -66,7 +63,7 @@ export const cardQuizSchema = z.object({
     .array(
       z.object({
         ...baseQuestionFields,
-        options: z.array(scoreOption).min(1),
+        options: z.array(dualOption).min(1),
       })
     )
     .min(1),
@@ -80,7 +77,7 @@ export const tagQuizSchema = z.object({
     .array(
       z.object({
         ...baseQuestionFields,
-        options: z.array(tagOption).min(1),
+        options: z.array(dualOption).min(1),
       })
     )
     .min(1),

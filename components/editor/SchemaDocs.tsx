@@ -2,11 +2,11 @@ import type { QuizType } from "@/lib/constants";
 
 const TYPE_NOTE: Record<QuizType, string> = {
   score:
-    "Each option carries a score. We sum them at the end and look up which result row's range matches.",
+    "Result screen is a score: we sum option scores and show the matched result-bucket title + CTA. (Tags are also tracked and shown in stats.)",
   card:
-    "Same scoring as a score quiz, but the result is presented as a shareable badge. The olive icon on the badge is randomly chosen at render — only the title and description come from the matched result row.",
+    "Same scoring as a score quiz, but the result is presented as a shareable badge. The olive icon on the badge is randomly chosen at render — only the title and description come from the matched result row. (Tags are also tracked and shown in stats.)",
   tag:
-    "Each option carries one or more tags. At the end we tally the tags and show the user their profile. No result rows — the tag tally is the result.",
+    "Result screen is a tag tally — the tags the user collected, sorted by count. No result-bucket rows. (Scores are also tracked and shown in stats.)",
 };
 
 function Field({
@@ -99,16 +99,20 @@ export function SchemaDocs({ type }: { type: QuizType }) {
           <Field name="id" required>UUID.</Field>
           <Field name="text" required>What the user sees on the answer tile.</Field>
           <Field name="position" required>0-based ordering.</Field>
-          {type === "tag" ? (
-            <Field name="tags" required>
-              Array of strings, at least 1. Score is not used.
-            </Field>
-          ) : (
-            <Field name="score" required>
-              Non-negative integer. For sliders, this is the max value.
-            </Field>
-          )}
+          <Field name="score" required>
+            Non-negative integer. For sliders, this is the max value.
+            Used by the score histogram (and, for score/card quizzes, to
+            pick the result bucket).
+          </Field>
+          <Field name="tags" required>
+            Array of strings, at least 1. Used by the tag tally (and, for
+            tag quizzes, drives the result screen).
+          </Field>
         </ul>
+        <p className="mt-2 pl-5 text-[11px] text-olive-deep/60">
+          Every option carries BOTH dimensions regardless of quiz type — the
+          stats page surfaces score and tag analytics for every quiz.
+        </p>
       </details>
 
       {type !== "tag" ? (

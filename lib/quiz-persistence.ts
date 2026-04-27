@@ -91,9 +91,10 @@ export function quizFullToAIShape(q: QuizFull): AIQuizJson {
         id: o.id,
         text: o.text,
         position: o.position,
-        ...(q.type === "tag"
-          ? { tags: o.tags }
-          : { score: o.score ?? 0 }),
+        // Dual-dimension model: every option emits both score and tags
+        // regardless of quiz type.
+        score: o.score ?? 0,
+        tags: o.tags ?? [],
       })),
     })),
     results: q.results.map((r) => ({

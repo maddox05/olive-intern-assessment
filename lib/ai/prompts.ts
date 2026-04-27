@@ -1,7 +1,7 @@
 import type { QuizType } from "@/lib/constants";
 
 const SHARED_RULES = `
-RULES (apply to every quiz):
+RULES (apply to every quiz, regardless of type):
 
 1. Every question and option and result row needs a stable UUID v4.
    Generate fresh UUIDs at quiz-creation time. When editing an existing
@@ -22,16 +22,30 @@ RULES (apply to every quiz):
    with the quiz's vibe. Avoid corporate boilerplate.
 
 5. Prefer 4–8 questions for most quizzes unless the user asks otherwise.
+
+6. EVERY OPTION carries BOTH a "score" (non-negative integer) AND a "tags"
+   array (1+ short noun-phrase strings). This is non-negotiable regardless
+   of quiz type — we track both dimensions so the analytics dashboard can
+   surface BOTH a score histogram AND a tag tally for every quiz. The quiz
+   type only changes which dimension drives the result screen the user sees.
+
+   - Slider options also carry tags (e.g. a "how often do you cook" slider
+     option could be tagged ["cooking-frequency"]). The tag describes what
+     the slider measures.
+   - Select-multiple option scores are summed and tags are unioned across
+     the user's selections.
+   - Pick a small consistent vocabulary of tags across the whole quiz so
+     tallies are meaningful (e.g. "wellness", "convenience-first",
+     "label-reader" — repeat the same tags across multiple options where
+     they apply).
 `;
 
 const SCORE_RULES = `
-SCORE QUIZ RULES:
+SCORE QUIZ — what drives the result screen:
 
-- Every option carries a non-negative integer "score". When the user
-  finishes, we sum every chosen option's score (and every selected option's
-  score for select_multiple, and the user's slider value for sliders).
-- The "results" array is a list of buckets the total score can land in.
-  Each result has a "range" tuple [lo, hi] (both inclusive integers).
+- The user's total score (sum of chosen option scores) selects a result
+  bucket. The "results" array lists those buckets; each has a "range"
+  tuple [lo, hi] (inclusive integers).
 - Results MUST cover [0, maxPossibleScore] with NO GAPS and NO OVERLAPS.
   Sort by range[0] ascending; the first range must start at 0; each next
   range[0] must equal previous range[1] + 1; the last range[1] must equal
@@ -39,33 +53,34 @@ SCORE QUIZ RULES:
 - 3–5 result tiers feels right for most quizzes.
 - Each result has a friendly title_text, a 1–2 sentence description,
   cta_text (e.g. "Try Olive"), and a valid cta_url.
+- Tags on options ALSO get tallied for the analytics view, but the user's
+  result screen is score-driven.
 `;
 
 const CARD_RULES = `
-CARD QUIZ RULES:
+CARD QUIZ — what drives the result screen:
 
-- Card quizzes work EXACTLY like score quizzes for scoring and result
-  bucketing — every option has a "score", and "results" cover [0, max]
-  with no gaps. The score determines which result row matches.
+- Same scoring + result-bucket math as score quizzes. The score determines
+  which result row matches.
 - The DIFFERENCE: each result row's title_text and description should
   read like a shareable badge identity, e.g. "The Label Detective",
   "The Blissfully Unaware". Punchy, fun, screenshottable.
 - The badge artwork is a hand-drawn olive icon picked at render time —
   you don't generate art, just the badge's title and copy.
 - 3–5 badge tiers is ideal.
+- Tags on options ALSO get tallied for the analytics view.
 `;
 
 const TAG_RULES = `
-TAG QUIZ RULES:
+TAG QUIZ — what drives the result screen:
 
-- Every option carries a "tags" array (1+ strings). When the user finishes,
-  we tally every tag they collected across their answers.
-- The result screen shows their tag tallies (e.g. "Wellness Warrior — 3x").
+- The result screen shows the tally of tags the user collected across
+  their answers (e.g. "Wellness Warrior — 3×").
 - DO NOT generate any "results" rows — the results array must be empty [].
-- DO NOT include "score" on options — only "tags".
-- Tags should be short noun phrases, consistent across options
-  (e.g. "wellness", "convenience-first", "label-reader" — pick a vocabulary
-  and stick to it across the quiz so tallies are meaningful).
+- Score on options ALSO gets summed for the analytics view (so the admin
+  can see a score-distribution chart even on a tag quiz), but the user's
+  result screen is tag-driven. Pick scores that are meaningful directional
+  weights even if no result-bucket maps them.
 `;
 
 function rulesFor(type: QuizType): string {
@@ -90,7 +105,7 @@ QUALITY BAR:
 - The result should feel like a real product, not a Google Form.
 - Question wording is conversational. Option text is concrete (not "Strongly agree" / "Strongly disagree" unless the user explicitly asks).
 - For score/card quizzes, score weights should make the math interesting — not every option is worth 1 point.
-- Pick CTA URLs that are plausible (https://olive.app/start, https://olive.app/learn, etc) unless the user gave specific URLs.
+- Pick CTA URLs that are plausible (https://oliveapp.com/, https://oliveapp.com/#features, (no other choices unless user specified)) unless the user gave specific URLs.
 `;
 }
 

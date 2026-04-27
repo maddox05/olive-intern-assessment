@@ -82,24 +82,24 @@ export default async function StatsPage({
   const completionPct =
     startedCount === 0 ? 0 : Math.round((completedCount / startedCount) * 100);
 
-  // Per-type analytics
-  const scoreData =
-    quiz.type === "score" || quiz.type === "card"
-      ? await getScoreDistribution(id, sessionFilter)
-      : null;
-  const tagData = quiz.type === "tag" ? await getTagAnalytics(id, sessionFilter) : null;
+  // Dual-dimension analytics: every option carries BOTH score and tags, so
+  // we fetch both for every quiz type. The quiz type only chooses which
+  // panel is the PRIMARY one shown first; the other dimension renders
+  // below as the "Other dimension" secondary panel.
+  const [scoreData, tagData] = await Promise.all([
+    getScoreDistribution(id, sessionFilter),
+    getTagAnalytics(id, sessionFilter),
+  ]);
   // Defense-in-depth: a UNIQUE(session_id, result_id) constraint on
   // result_screen_clicked already prevents double-counting, but clamp at
   // 100% in case any pre-constraint rows ever sneaked in.
   const ctaClickRatePct =
-    scoreData == null
+    completedCount === 0
       ? null
-      : completedCount === 0
-        ? null
-        : Math.min(
-            100,
-            Math.round((scoreData.ctaClicks / completedCount) * 100)
-          );
+      : Math.min(
+          100,
+          Math.round((scoreData.ctaClicks / completedCount) * 100)
+        );
 
   const trace = sessionFilter ? await getSessionTrace(sessionFilter) : null;
 
@@ -176,14 +176,32 @@ export default async function StatsPage({
         </PanelShell>
       </section>
 
-      <section className="mt-6">
-        {quiz.type === "score" && scoreData ? (
-          <ScorePanel data={scoreData} variant="score" ctaClickRatePct={ctaClickRatePct} />
-        ) : quiz.type === "card" && scoreData ? (
-          <CardPanel data={scoreData} ctaClickRatePct={ctaClickRatePct} />
-        ) : tagData ? (
-          <TagPanel data={tagData} />
-        ) : null}
+      <section className="mt-6 space-y-5">
+        {/* Primary dimension — the one this quiz's result screen uses */}
+        <div>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-olive-deep/55">
+            Primary — what drives the result screen
+          </h2>
+          {quiz.type === "score" ? (
+            <ScorePanel data={scoreData} variant="score" ctaClickRatePct={ctaClickRatePct} />
+          ) : quiz.type === "card" ? (
+            <CardPanel data={scoreData} ctaClickRatePct={ctaClickRatePct} />
+          ) : (
+            <TagPanel data={tagData} />
+          )}
+        </div>
+        {/* Secondary dimension — the OTHER axis we still track for richer
+            insights now that every option carries both score and tags. */}
+        <div>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-olive-deep/55">
+            Also tracked — the other dimension
+          </h2>
+          {quiz.type === "tag" ? (
+            <ScorePanel data={scoreData} variant="score" ctaClickRatePct={ctaClickRatePct} />
+          ) : (
+            <TagPanel data={tagData} />
+          )}
+        </div>
       </section>
 
       <section className="mt-6">
