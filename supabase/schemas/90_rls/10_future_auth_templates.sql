@@ -1,0 +1,43 @@
+-- TEMPLATES (commented out) — uncomment + adapt when auth lands.
+--
+-- The MVP has no user accounts: all writes flow through Server Actions
+-- using the service-role key, which bypasses RLS. The 7 tables are
+-- closed-by-default to anon (see 00_enable_rls.sql) so no browser-side
+-- bypass is possible.
+--
+-- When/if Olive adds a real auth provider (Supabase Auth, Clerk, etc.)
+-- and wants quiz creators to be scoped to their own quizzes, the
+-- following template policies show the rough shape. They assume:
+--   - quiz table grows a `created_by uuid references auth.users` column
+--   - takers stay anonymous (session table grows no owner column)
+--   - admins (anyone with auth.uid()) can read any quiz they created and
+--     can read its analytics; takers can READ public quiz definitions and
+--     INSERT their own session/answers.
+
+-- ---- example: quiz-creator scoping ----
+-- create policy "creators see own quizzes"
+--   on public.quiz for select
+--   using (created_by = auth.uid());
+-- create policy "creators insert quizzes"
+--   on public.quiz for insert
+--   with check (created_by = auth.uid());
+-- create policy "creators update own quizzes"
+--   on public.quiz for update
+--   using (created_by = auth.uid());
+
+-- ---- example: public-read of quiz definitions for the taker URL ----
+-- create policy "anyone reads quiz definitions"
+--   on public.quiz for select to anon
+--   using (true);
+-- create policy "anyone reads questions" on public.question for select to anon using (true);
+-- create policy "anyone reads options"   on public.option   for select to anon using (true);
+-- create policy "anyone reads results"   on public.result   for select to anon using (true);
+
+-- ---- example: anonymous taker writes own session ----
+-- create policy "anyone starts sessions"
+--   on public.session for insert to anon
+--   with check (true);
+-- (writes to session/questions_answered/result_screen_clicked from the
+--  browser would need a stable session_id pinned to the cookie/localStorage
+--  on the client and a CHECK on the policy that the row's session_id
+--  matches that cookie. For now keep these server-only.)
