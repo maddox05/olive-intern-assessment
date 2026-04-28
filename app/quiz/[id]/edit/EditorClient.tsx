@@ -86,7 +86,11 @@ export function EditorClient({
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1.6fr_1fr]">
-        <div className="space-y-5">
+        {/* min-w-0: CSS grid items default to min-width:auto = min-content,
+            and CodeMirror's long JSON lines are an unbreakable token that
+            would force this column past its 1.6fr track and push SchemaDocs
+            off-screen. min-w-0 lets the track honor the fr ratio. */}
+        <div className="min-w-0 space-y-5">
           <section className="olive-tile p-5">
             <JsonCodeEditor
               key={editorKey}

@@ -96,7 +96,7 @@ export function JsonCodeEditor({
   };
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-w-0 flex-col">
       <div className="flex items-center justify-between gap-3 pb-2">
         <h2 className="text-base font-extrabold tracking-tight text-olive-deep">
           Quiz JSON
