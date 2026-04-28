@@ -9,6 +9,10 @@ import {
 import { QuizValidationError } from "@/lib/ai/validators";
 import type { AIQuiz } from "@/lib/ai/schemas";
 
+// Edit calls send the full current quiz JSON in addition to the prompt
+// — typically 20–50s. Same Vercel timeout treatment as the create route.
+export const maxDuration = 60;
+
 const bodySchema = z.object({
   quizId: z.uuid(),
   prompt: z.string().min(3).max(4000),

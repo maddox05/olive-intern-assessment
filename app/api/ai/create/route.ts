@@ -5,6 +5,10 @@ import { persistAIQuiz } from "@/lib/quiz-persistence";
 import { QuizValidationError } from "@/lib/ai/validators";
 import { QUIZ_TYPES } from "@/lib/constants";
 
+// Sonnet 4.6 generation typically takes 15–45s; Vercel Hobby defaults to
+// 10s and Pro to 15s. Bump to 60s (Hobby's max; Pro allows up to 300).
+export const maxDuration = 60;
+
 const bodySchema = z.object({
   type: z.enum(QUIZ_TYPES),
   prompt: z.string().min(3).max(4000),
