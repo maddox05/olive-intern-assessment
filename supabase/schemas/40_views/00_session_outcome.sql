@@ -3,7 +3,17 @@
 -- Used by analytics queries.
 -- Card quizzes use the same path as score quizzes; tag quizzes ignore
 -- total_score and just consume tag_counts.
-create or replace view public.session_outcome as
+--
+-- security_invoker = true makes the view honor the QUERYING role's RLS on
+-- the underlying tables (session, questions_answered, option). Without
+-- this, Postgres uses the view OWNER's privileges, which would let anon
+-- bypass the table-level RLS and read every session's outcome via
+-- /rest/v1/session_outcome. Supabase's security advisor flags this; the
+-- service-role server-side queries are unaffected (service role bypasses
+-- RLS on tables anyway).
+create or replace view public.session_outcome
+with (security_invoker = true)
+as
 with chosen_options as (
   -- single-choice answers contribute their option directly
   select qa.session_id, qa.question_id, o.score, o.tags

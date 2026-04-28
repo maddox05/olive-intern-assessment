@@ -1,0 +1,11 @@
+-- Make session_outcome view honor the QUERYING role's RLS on the underlying
+-- tables instead of the view OWNER's (postgres) privileges.
+--
+-- Without this, anon could hit /rest/v1/session_outcome and read every
+-- session's total_score and tag_counts, bypassing the table-level RLS we
+-- enabled on session/questions_answered/option in the prior migration.
+--
+-- Supabase's security advisor flags views without security_invoker.
+-- Service-role server-side queries are unaffected (service role bypasses
+-- table RLS regardless).
+alter view public.session_outcome set (security_invoker = true);
