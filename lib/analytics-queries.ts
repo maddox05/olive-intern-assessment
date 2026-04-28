@@ -208,34 +208,24 @@ export async function getTimePerQuestion(
 
   // For each question, collect the per-session time spent on it.
   // Locked decision #17:
-  //   - Q1 time: q1.answered - session.start
-  //   - Middle: q[i].answered - q[i-1].answered
-  //   - Final question of the QUIZ when this session completed: end - q.answered
-  //   - Final question of the QUIZ when this session abandoned: excluded
-  // A session's last *answered* question is only treated as the "final" question
-  // when arr.length === questions.length AND end_time is set. For abandoned
-  // sessions, every answered question still gets the normal cur-prev measurement.
+  //   - Q1 time: q1.answered - session.start (= time on start screen + Q1)
+  //   - Q[i] time: q[i].answered - q[i-1].answered (= time on Q[i])
+  // The previous "final-on-completion = end - q.answered" branch was
+  // measuring render latency between submitting the last answer and the
+  // result screen mounting (~milliseconds), not actual thinking time.
+  // The natural cur-prev formula gives the real time the user spent on
+  // the last question, same shape as every other middle question.
   const buckets = new Map<string, number[]>();
-  const totalQuestions = questions.length;
   for (const [sid, arr] of bySession) {
     const sess = sessionMap.get(sid);
     if (!sess) continue;
     const startMs = new Date(sess.start_time).getTime();
-    const endMs = sess.end_time ? new Date(sess.end_time).getTime() : null;
-    const completed = arr.length === totalQuestions && endMs != null;
     for (let i = 0; i < arr.length; i++) {
       const cur = arr[i];
       const curMs = new Date(cur.answeredAt).getTime();
-      let secs: number;
-      if (i === 0) {
-        secs = (curMs - startMs) / 1000;
-      } else if (completed && i === arr.length - 1) {
-        // end_time is non-null when completed === true
-        secs = ((endMs as number) - curMs) / 1000;
-      } else {
-        const prevMs = new Date(arr[i - 1].answeredAt).getTime();
-        secs = (curMs - prevMs) / 1000;
-      }
+      const prevMs =
+        i === 0 ? startMs : new Date(arr[i - 1].answeredAt).getTime();
+      const secs = (curMs - prevMs) / 1000;
       if (!Number.isFinite(secs) || secs < 0) continue;
       const list = buckets.get(cur.questionId) ?? [];
       list.push(secs);
