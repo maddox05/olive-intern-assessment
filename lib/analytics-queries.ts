@@ -190,10 +190,19 @@ export async function getTimePerQuestion(
     .select("session_id, question_id, answered_at")
     .in("session_id", sessionIds)
     .order("answered_at", { ascending: true });
-  // Dedupe: only the LATEST answer per (session, question) counts toward
-  // timing — back-button re-answers get dropped (their original timing
-  // would otherwise show up as a 0s contribution).
-  const answers = dedupeLatestAnswer(answersRaw ?? []);
+  // Dedupe to the LATEST answer per (session, question) — back-button
+  // re-answers get dropped from timing.
+  // RE-SORT after dedupe: dedupeLatestAnswer's Map preserves first-key-
+  // insertion order, NOT latest-answered-at order. For a session that
+  // back-buttoned and re-answered an early question late (e.g. Q1@t=20
+  // after answering Q2@t=10 and Q3@t=15), the deduped array would still
+  // list Q1 first, then later questions, breaking cur-prev math (cur
+  // ends up earlier than prev → negative secs → silently filtered).
+  // Sorting by answered_at after dedupe gives each session a clean
+  // chronological timeline of latest answers.
+  const answers = dedupeLatestAnswer(answersRaw ?? []).sort((a, b) =>
+    a.answered_at.localeCompare(b.answered_at)
+  );
 
   // Group answers by session, ordered by answered_at
   const bySession = new Map<
