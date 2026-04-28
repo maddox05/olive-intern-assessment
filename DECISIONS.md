@@ -78,7 +78,14 @@ I touched on how quizzes are store a bit at the start
 - 4 tables, quiz , questions in the quiz, options in the question, results in the quiz
   responses are store via another 3 tables, first I track sessions as I need to be able to tell if they started and stoped mid way and what time they did that, I also track questions answered as they go, to be able to tell when they drop and to recreate what they answered, and then at the end I created another table for if they clicked the CTA at the end, to track that.
 
-for the quiz creator dashboard, TODODOODODOODOD
+for the quiz creator dashboard,
+main thing I assumed the creator would want to see is a funnel. who dropped off and where?
+we can also see some other basics as answer distrobution, averages, what tags people collected the most
+whats also nice, as the user is taking the quiz they develop tags, so we can see for example which user with a given tag is most likely to stop taking the quiz, or not click the cta for example.
+
+I think funnel is most important, to really see when users drop
+
+final note, users can go back on questions but as I don't use users going back on question data, i have it only look at the lastest answer. this of course could cause issues if for example a user gets to the end then goes all the way back increasing time per question etc.
 
 ## Cost
 

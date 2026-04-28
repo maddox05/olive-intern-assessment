@@ -84,8 +84,21 @@ export function ScorePanel({
             bins.push({ from, to, count });
           }
           const binMax = bins.reduce((m, b) => Math.max(m, b.count), 0);
+          // Vertical bars per score bin. ALL colors and dimensions are
+          // inline-styled with raw CSS variables so the chart can't be
+          // accidentally invisible from a missing Tailwind utility.
           return (
-            <div className="flex h-32 items-end gap-1.5">
+            <div
+              // pt-5 reserves 20px above the bar area so the count labels,
+              // which are positioned just above each bar's top edge, stay
+              // inside the panel even when the bar fills 100%.
+              className="relative flex h-36 items-end gap-1.5 rounded-lg p-2 pt-5"
+              style={{
+                background:
+                  "linear-gradient(to top, color-mix(in oklab, var(--olive-mint-100) 70%, white) 0%, transparent 100%)",
+                borderBottom: "2px solid var(--olive-mint-200)",
+              }}
+            >
               {bins.map((b, i) => {
                 const heightPct = binMax === 0 ? 0 : (b.count / binMax) * 100;
                 const label = b.from === b.to ? `${b.from}` : `${b.from}–${b.to}`;
@@ -93,22 +106,51 @@ export function ScorePanel({
                 return (
                   <div
                     key={i}
-                    className="relative flex flex-1 flex-col items-center justify-end"
+                    className="relative flex h-full flex-1 flex-col items-center justify-end"
                     title={`Scores ${label} — ${b.count} session${b.count === 1 ? "" : "s"}`}
                   >
-                    {populated ? (
-                      <span className="absolute -top-1 text-[10px] font-bold text-olive-deep">
-                        {b.count}
-                      </span>
-                    ) : null}
+                    {/* Bar wrapper holds both the bar and the floating count
+                        label. The label is absolutely positioned just above
+                        the wrapper's top edge — which IS the bar's top, so
+                        the label always hovers on the bar regardless of
+                        height. */}
                     <div
-                      className={
-                        "w-full rounded-t-md transition-all " +
-                        (populated ? "bg-olive-deep" : "bg-olive-mint-100")
-                      }
-                      style={{ height: populated ? `${heightPct}%` : "4px" }}
-                    />
-                    <span className="mt-1 text-[10px] text-olive-deep/55">
+                      className="relative w-full"
+                      style={{
+                        // Bars are at LEAST 12px so even single-sample bins
+                        // are obviously visible. Empty bins render a 6px
+                        // mint-200 tick so the chart looks like a chart.
+                        height: populated
+                          ? `max(12px, ${heightPct}%)`
+                          : "6px",
+                        minWidth: "8px",
+                      }}
+                    >
+                      {populated ? (
+                        <span
+                          className="absolute left-1/2 -translate-x-1/2 text-[10px] font-bold leading-none"
+                          style={{
+                            color: "var(--olive-deep)",
+                            // 4px above the bar's top edge — moves with the bar.
+                            bottom: "calc(100% + 4px)",
+                          }}
+                        >
+                          {b.count}
+                        </span>
+                      ) : null}
+                      <div
+                        className="h-full w-full rounded-t-md transition-all"
+                        style={{
+                          backgroundColor: populated
+                            ? "var(--olive-deep)"
+                            : "var(--olive-mint-200)",
+                        }}
+                      />
+                    </div>
+                    <span
+                      className="mt-1 text-[10px] font-medium"
+                      style={{ color: "color-mix(in oklab, var(--olive-deep) 65%, transparent)" }}
+                    >
                       {label}
                     </span>
                   </div>

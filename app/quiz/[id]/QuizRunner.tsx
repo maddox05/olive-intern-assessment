@@ -59,6 +59,28 @@ function tagsOf(
   return [];
 }
 
+function maxScoreOf(quiz: QuizFull): number {
+  // Sum across questions of the max contributing score per question.
+  // - multiple_choice: max of option.score (single pick)
+  // - select_multiple: SUM of option scores (user can pick all)
+  // - slider:          option.score (the slider's max value)
+  let total = 0;
+  for (const q of quiz.questions) {
+    if (q.options.length === 0) continue;
+    if (q.type === "select_multiple") {
+      total += q.options.reduce((s, o) => s + (o.score ?? 0), 0);
+    } else if (q.type === "slider") {
+      total += q.options[0]?.score ?? 0;
+    } else {
+      total += q.options.reduce(
+        (m, o) => Math.max(m, o.score ?? 0),
+        0
+      );
+    }
+  }
+  return total;
+}
+
 function pickResult(
   results: ResultRow[],
   totalScore: number
@@ -90,6 +112,7 @@ export function QuizRunner({ quiz }: { quiz: QuizFull }) {
 
   const total = quiz.questions.length;
   const currentQ = quiz.questions[idx];
+  const maxScore = useMemo(() => maxScoreOf(quiz), [quiz]);
 
   const handleStart = useCallback(() => {
     startTransition(async () => {
@@ -197,6 +220,7 @@ export function QuizRunner({ quiz }: { quiz: QuizFull }) {
         <ResultScore
           sessionId={sessionId}
           totalScore={totalScore}
+          maxScore={maxScore}
           matched={pickResult(quiz.results, totalScore)}
         />
       ) : quiz.type === "card" ? (

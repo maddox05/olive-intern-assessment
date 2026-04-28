@@ -1,48 +1,100 @@
+// Ticket-shaped badge variant B — laurel-wreath olive on the same
+// rounded-rectangle silhouette as A and C.
 export function OliveBadgeB({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 200 200" className={className} aria-hidden>
+    <svg
+      viewBox="0 0 280 168"
+      className={className}
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden
+    >
       <defs>
-        <linearGradient id="bgB" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="ticketB" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#fde98e" />
-          <stop offset="100%" stopColor="#c89327" />
-        </linearGradient>
-        <linearGradient id="ringB" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#a37b1c" />
-          <stop offset="100%" stopColor="#fbe48a" />
+          <stop offset="55%" stopColor="#d4a84b" />
+          <stop offset="100%" stopColor="#8a6217" />
         </linearGradient>
       </defs>
-      {/* shield silhouette */}
-      <path
-        d="M100 12 L180 38 L180 110 C180 152, 145 178, 100 188 C55 178, 20 152, 20 110 L20 38 Z"
-        fill="url(#ringB)"
+
+      <rect x="2" y="2" width="276" height="164" rx="16" fill="url(#ticketB)" />
+      <rect
+        x="8"
+        y="8"
+        width="264"
+        height="152"
+        rx="12"
+        fill="none"
+        stroke="rgba(122, 88, 18, 0.55)"
+        strokeWidth="0.8"
       />
-      <path
-        d="M100 22 L170 44 L170 108 C170 144, 142 168, 100 178 C58 168, 30 144, 30 108 L30 44 Z"
-        fill="url(#bgB)"
+      <line
+        x1="208"
+        y1="14"
+        x2="208"
+        y2="154"
+        stroke="rgba(122, 88, 18, 0.6)"
+        strokeWidth="1"
+        strokeDasharray="3 4"
       />
-      {/* laurel-style olive branches forming a wreath */}
-      <g fill="#5e8a3f">
-        <ellipse cx="60" cy="100" rx="6" ry="11" transform="rotate(-30 60 100)" />
-        <ellipse cx="55" cy="115" rx="6" ry="11" transform="rotate(-15 55 115)" />
-        <ellipse cx="55" cy="130" rx="6" ry="11" transform="rotate(10 55 130)" />
-        <ellipse cx="140" cy="100" rx="6" ry="11" transform="rotate(30 140 100)" />
-        <ellipse cx="145" cy="115" rx="6" ry="11" transform="rotate(15 145 115)" />
-        <ellipse cx="145" cy="130" rx="6" ry="11" transform="rotate(-10 145 130)" />
+
+      <text
+        x="20"
+        y="34"
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+        fontSize="10"
+        fontWeight="700"
+        letterSpacing="2.6"
+        fill="#5e3f08"
+      >
+        OLIVE LAUREL
+      </text>
+
+      {/* Laurel wreath olives encircling a star */}
+      <g fill="#3b6e42">
+        <ellipse cx="58" cy="92" rx="6" ry="11" transform="rotate(-30 58 92)" />
+        <ellipse cx="55" cy="108" rx="6" ry="11" transform="rotate(-15 55 108)" />
+        <ellipse cx="60" cy="124" rx="6" ry="11" transform="rotate(15 60 124)" />
+        <ellipse cx="142" cy="92" rx="6" ry="11" transform="rotate(30 142 92)" />
+        <ellipse cx="145" cy="108" rx="6" ry="11" transform="rotate(15 145 108)" />
+        <ellipse cx="140" cy="124" rx="6" ry="11" transform="rotate(-15 140 124)" />
       </g>
       <g fill="#7fb888" opacity="0.85">
-        <ellipse cx="65" cy="92" rx="5" ry="9" transform="rotate(-30 65 92)" />
-        <ellipse cx="135" cy="92" rx="5" ry="9" transform="rotate(30 135 92)" />
+        <ellipse cx="65" cy="84" rx="5" ry="9" transform="rotate(-30 65 84)" />
+        <ellipse cx="135" cy="84" rx="5" ry="9" transform="rotate(30 135 84)" />
       </g>
-      {/* central olive fruit */}
-      <ellipse cx="100" cy="120" rx="22" ry="28" fill="#3b6e42" />
-      <ellipse cx="94" cy="110" rx="6" ry="10" fill="#7fb04f" opacity="0.7" />
-      {/* star above olive */}
+      {/* Star in center */}
       <path
-        d="M100 65 L104 76 L116 76 L106 83 L110 95 L100 88 L90 95 L94 83 L84 76 L96 76 Z"
+        d="M100 76 L106 92 L122 92 L109 102 L114 118 L100 109 L86 118 L91 102 L78 92 L94 92 Z"
         fill="#fff5d1"
         stroke="#a37b1c"
-        strokeWidth="1"
+        strokeWidth="1.2"
       />
+
+      <text
+        x="240"
+        y="84"
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+        fontSize="11"
+        fontWeight="800"
+        letterSpacing="3"
+        fill="#5e3f08"
+        transform="rotate(-90 240 84)"
+        textAnchor="middle"
+      >
+        AWARDED
+      </text>
+
+      <text
+        x="20"
+        y="148"
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+        fontSize="8"
+        fontWeight="600"
+        letterSpacing="1.6"
+        fill="rgba(94, 63, 8, 0.7)"
+      >
+        OLIVE QUIZ STUDIO · No.002
+      </text>
     </svg>
   );
 }
