@@ -1,23 +1,10 @@
--- Computed-on-read outcome per session: total score (sum of chosen-option
--- scores plus slider numeric values) and tag tally (jsonb of tag -> count).
--- Used by analytics queries.
--- Card quizzes use the same path as score quizzes; tag quizzes ignore
--- total_score and just consume tag_counts.
---
--- security_invoker = true makes the view honor the QUERYING role's RLS on
--- the underlying tables (session, questions_answered, option). Without
--- this, Postgres uses the view OWNER's privileges, which would let anon
--- bypass the table-level RLS and read every session's outcome via
--- /rest/v1/session_outcome. Supabase's security advisor flags this; the
--- service-role server-side queries are unaffected (service role bypasses
--- RLS on tables anyway).
+-- session_outcome view: when a user uses the back button and re-answers
+-- the same question, we want only the LATEST answer per (session, question).
+-- Earlier rows stay in the DB for the per-session deep-dive trace, but
+-- they no longer double-count toward score, tags, or any aggregate.
 create or replace view public.session_outcome
 with (security_invoker = true)
 as
--- Dedupe: if the user used the back button and re-answered the same
--- question, we want only the LATEST answer per (session, question).
--- Earlier rows are kept in the DB for the session deep-dive trace, but
--- they don't count toward score, tags, or any aggregate.
 with latest_answers as (
   select distinct on (qa.session_id, qa.question_id)
     qa.session_id, qa.question_id,
@@ -25,19 +12,16 @@ with latest_answers as (
   from public.questions_answered qa
   order by qa.session_id, qa.question_id, qa.answered_at desc
 ), chosen_options as (
-  -- single-choice answers contribute their option directly
   select qa.session_id, qa.question_id, o.score, o.tags
   from latest_answers qa
   join public.option o on o.id = qa.option_chosen_id
   where qa.option_chosen_id is not null
   union all
-  -- select-multiple answers contribute every selected option
   select qa.session_id, qa.question_id, o.score, o.tags
   from latest_answers qa
   join public.option o on o.id = any(qa.selected_option_ids)
   where qa.selected_option_ids is not null
 ), slider_answers as (
-  -- slider answers contribute the user's chosen numeric value as the score
   select qa.session_id, qa.numeric_answer as score, '{}'::text[] as tags
   from latest_answers qa
   where qa.numeric_answer is not null
@@ -50,9 +34,6 @@ with latest_answers as (
   from all_contributions
   group by session_id
 ), per_session_tags as (
-  -- Separate aggregation so empty-tag answers don't drop their score
-  -- contribution (the previous version cross-joined unnest(tags) which
-  -- annihilated rows when every tag array was empty).
   select ac.session_id, jsonb_object_agg(t.tag, t.cnt) as tag_counts
   from (
     select session_id, tag, count(*) as cnt

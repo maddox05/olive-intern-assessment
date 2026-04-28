@@ -87,6 +87,23 @@ interface QuestionRow {
   type: string;
 }
 
+/**
+ * Dedupe: if a user used the back button and re-answered the same question,
+ * we want only the LATEST answer per (session_id, question_id). Earlier
+ * rows stay in the DB for audit purposes, but for analytics they don't
+ * count toward score, picks, timing, or aggregates.
+ *
+ * Caller is responsible for ordering input by answered_at ASC (we keep
+ * the last seen row, so the latest one wins).
+ */
+function dedupeLatestAnswer<
+  T extends { session_id: string; question_id: string }
+>(rows: T[]): T[] {
+  const latest = new Map<string, T>();
+  for (const r of rows) latest.set(`${r.session_id}|${r.question_id}`, r);
+  return Array.from(latest.values());
+}
+
 async function listSessionIds(quizId: string, sessionFilter?: string) {
   const supabase = getServerClient();
   if (sessionFilter) {
@@ -173,7 +190,10 @@ export async function getTimePerQuestion(
     .select("session_id, question_id, answered_at")
     .in("session_id", sessionIds)
     .order("answered_at", { ascending: true });
-  const answers = answersRaw ?? [];
+  // Dedupe: only the LATEST answer per (session, question) counts toward
+  // timing — back-button re-answers get dropped (their original timing
+  // would otherwise show up as a 0s contribution).
+  const answers = dedupeLatestAnswer(answersRaw ?? []);
 
   // Group answers by session, ordered by answered_at
   const bySession = new Map<
@@ -273,17 +293,22 @@ export async function getAnswerDistribution(
       .in("question_id", questionIds)
       .order("position", { ascending: true }),
     sessionIds.size === 0
-      ? Promise.resolve({ data: [] as Array<{ session_id: string; question_id: string; option_chosen_id: string | null; selected_option_ids: string[] | null; numeric_answer: number | null }> })
+      ? Promise.resolve({ data: [] as Array<{ session_id: string; question_id: string; option_chosen_id: string | null; selected_option_ids: string[] | null; numeric_answer: number | null; answered_at: string }> })
       : supabase
           .from("questions_answered")
           .select(
-            "session_id, question_id, option_chosen_id, selected_option_ids, numeric_answer"
+            "session_id, question_id, option_chosen_id, selected_option_ids, numeric_answer, answered_at"
           )
-          .in("question_id", questionIds),
+          .in("question_id", questionIds)
+          .order("answered_at", { ascending: true }),
   ]);
 
   const opts = optionRows ?? [];
-  const answers = (answerRows ?? []).filter((a) => sessionIds.has(a.session_id));
+  // Dedupe: latest answer per (session, question) wins. Back-button
+  // re-answers don't double-count picks.
+  const answers = dedupeLatestAnswer(
+    (answerRows ?? []).filter((a) => sessionIds.has(a.session_id))
+  );
 
   // Group options by question
   const optsByQ = new Map<string, typeof opts>();
@@ -552,14 +577,19 @@ export async function getSessionTrace(
   sessionId: string
 ): Promise<SessionTraceItem[]> {
   const supabase = getServerClient();
-  const { data: answers } = await supabase
+  const { data: rawAnswers } = await supabase
     .from("questions_answered")
     .select(
       "question_id, option_chosen_id, numeric_answer, selected_option_ids, answered_at"
     )
     .eq("session_id", sessionId)
     .order("answered_at", { ascending: true });
-  if (!answers || answers.length === 0) return [];
+  if (!rawAnswers || rawAnswers.length === 0) return [];
+  // Single-session dedupe by question_id (rows already ordered by answered_at
+  // ascending; last write wins). Back-button re-answers don't appear twice.
+  const seen = new Map<string, (typeof rawAnswers)[number]>();
+  for (const a of rawAnswers) seen.set(a.question_id, a);
+  const answers = Array.from(seen.values());
 
   const questionIds = Array.from(new Set(answers.map((a) => a.question_id)));
   const optionIds = Array.from(
