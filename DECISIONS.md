@@ -124,6 +124,8 @@ Some things the ai did not abstract and did not code well, as a result as of the
 
 Badges: i think the badges are lackluster looking and
 
+quick note on editing, when editing past data isnt saved, so a user could have answerd yes to "do u use seed oils" but you changed it to "are you 5 feet tall" and it will then be that user is 5ft tall
+
 ## From Maddox
 
 here are some extras I think are important
