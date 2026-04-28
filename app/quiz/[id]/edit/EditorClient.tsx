@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { JsonEditor } from "@/components/editor/JsonEditor";
+import { JsonCodeEditor } from "@/components/editor/JsonCodeEditor";
 import { AiEditPanel } from "@/components/editor/AiEditPanel";
 import { NoSnapshotWarning } from "@/components/editor/NoSnapshotWarning";
 import { SchemaDocs } from "@/components/editor/SchemaDocs";
@@ -88,7 +88,7 @@ export function EditorClient({
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1.6fr_1fr]">
         <div className="space-y-5">
           <section className="olive-tile p-5">
-            <JsonEditor
+            <JsonCodeEditor
               key={editorKey}
               quizId={quizId}
               initialJson={currentJson}

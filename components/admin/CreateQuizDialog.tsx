@@ -2,6 +2,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { AiLoadingOverlay } from "@/components/AiLoadingOverlay";
 import {
   QUIZ_TYPES,
   QUIZ_TYPE_BLURB,
@@ -65,7 +66,8 @@ export function CreateQuizDialog({ onClose }: { onClose: () => void }) {
         if (!pending && e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="olive-tile relative w-full max-w-2xl px-6 py-7 sm:px-8 sm:py-8">
+      <div className="olive-tile relative w-full max-w-2xl overflow-hidden px-6 py-7 sm:px-8 sm:py-8">
+        <AiLoadingOverlay visible={pending} variant="create" />
         <button
           type="button"
           onClick={onClose}

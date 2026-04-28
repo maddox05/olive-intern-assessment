@@ -2,6 +2,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { loadQuizJsonAction } from "@/app/quiz/[id]/edit/actions";
+import { AiLoadingOverlay } from "@/components/AiLoadingOverlay";
 
 export function AiEditPanel({
   quizId,
@@ -45,7 +46,8 @@ export function AiEditPanel({
   };
 
   return (
-    <section className="olive-tile p-5">
+    <section className="olive-tile relative p-5">
+      <AiLoadingOverlay visible={pending} variant="edit" />
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-base font-extrabold tracking-tight text-olive-deep">
           Edit with AI
