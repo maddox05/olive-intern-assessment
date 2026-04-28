@@ -46,6 +46,22 @@ export interface SessionListItem {
   browser: string | null;
 }
 
+export interface AnswerDistributionQuestion {
+  questionId: string;
+  position: number;
+  text: string;
+  type: string;
+  totalAnswers: number;
+  // For multiple_choice + select_multiple: per-option pick counts.
+  // For slider: empty (sliders are tracked via numeric_answer, not options).
+  options: { id: string; text: string; count: number; pct: number }[];
+  neverPicked: { id: string; text: string }[];
+  // For slider: the avg numeric value picked (so the panel still has data).
+  sliderAvg: number | null;
+  sliderSamples: number;
+  sliderMax: number | null;
+}
+
 export interface SessionTraceItem {
   questionId: string;
   questionText: string;
@@ -225,6 +241,125 @@ function topN(
   n: number
 ): { label: string; count: number }[] {
   return [...pairs].sort((a, b) => b.count - a.count).slice(0, n);
+}
+
+/**
+ * Per-option pick distribution per question — answers spec line 69:
+ * "Track answer distribution for every question so admin can see which
+ * options users pick most and whether some answers are never selected."
+ *
+ * For multiple_choice + select_multiple: counts how many sessions chose
+ * each option. For slider: returns the avg numeric answer + sample size
+ * (sliders have only one option, scoring isn't a "pick").
+ */
+export async function getAnswerDistribution(
+  quizId: string,
+  sessionFilter?: string
+): Promise<AnswerDistributionQuestion[]> {
+  const supabase = getServerClient();
+  const [questions, sessions] = await Promise.all([
+    listQuestions(quizId),
+    listSessionIds(quizId, sessionFilter),
+  ]);
+  const sessionIds = new Set(sessions.map((s) => s.id));
+  if (questions.length === 0) return [];
+
+  // Pull every option for these questions in one query
+  const questionIds = questions.map((q) => q.id);
+  const [{ data: optionRows }, { data: answerRows }] = await Promise.all([
+    supabase
+      .from("option")
+      .select("id, question_id, text, score, position")
+      .in("question_id", questionIds)
+      .order("position", { ascending: true }),
+    sessionIds.size === 0
+      ? Promise.resolve({ data: [] as Array<{ session_id: string; question_id: string; option_chosen_id: string | null; selected_option_ids: string[] | null; numeric_answer: number | null }> })
+      : supabase
+          .from("questions_answered")
+          .select(
+            "session_id, question_id, option_chosen_id, selected_option_ids, numeric_answer"
+          )
+          .in("question_id", questionIds),
+  ]);
+
+  const opts = optionRows ?? [];
+  const answers = (answerRows ?? []).filter((a) => sessionIds.has(a.session_id));
+
+  // Group options by question
+  const optsByQ = new Map<string, typeof opts>();
+  for (const o of opts) {
+    const arr = optsByQ.get(o.question_id) ?? [];
+    arr.push(o);
+    optsByQ.set(o.question_id, arr);
+  }
+
+  // Tally per option-id
+  const pickCount = new Map<string, number>();
+  // Slider averages — keyed by question id
+  const sliderSum = new Map<string, number>();
+  const sliderN = new Map<string, number>();
+
+  for (const a of answers) {
+    if (a.option_chosen_id) {
+      pickCount.set(a.option_chosen_id, (pickCount.get(a.option_chosen_id) ?? 0) + 1);
+    } else if (a.selected_option_ids) {
+      for (const id of a.selected_option_ids) {
+        pickCount.set(id, (pickCount.get(id) ?? 0) + 1);
+      }
+    } else if (a.numeric_answer != null) {
+      sliderSum.set(a.question_id, (sliderSum.get(a.question_id) ?? 0) + a.numeric_answer);
+      sliderN.set(a.question_id, (sliderN.get(a.question_id) ?? 0) + 1);
+    }
+  }
+
+  return questions.map((q) => {
+    const qOpts = optsByQ.get(q.id) ?? [];
+    const totalAnswers = answers.filter((a) => a.question_id === q.id).length;
+    if (q.type === "slider") {
+      const sum = sliderSum.get(q.id) ?? 0;
+      const n = sliderN.get(q.id) ?? 0;
+      return {
+        questionId: q.id,
+        position: q.position,
+        text: q.text,
+        type: q.type,
+        totalAnswers,
+        options: [],
+        neverPicked: [],
+        sliderAvg: n === 0 ? null : sum / n,
+        sliderSamples: n,
+        sliderMax: qOpts[0]?.score ?? null,
+      };
+    }
+    // For pick-based questions, denominator is total picks for this question
+    // (sums to >totalAnswers for select_multiple, == totalAnswers for MC).
+    const totalPicks = qOpts.reduce(
+      (s, o) => s + (pickCount.get(o.id) ?? 0),
+      0
+    );
+    return {
+      questionId: q.id,
+      position: q.position,
+      text: q.text,
+      type: q.type,
+      totalAnswers,
+      options: qOpts.map((o) => {
+        const count = pickCount.get(o.id) ?? 0;
+        return {
+          id: o.id,
+          text: o.text,
+          count,
+          pct: totalPicks === 0 ? 0 : (count / totalPicks) * 100,
+        };
+      }),
+      neverPicked: qOpts
+        .filter((o) => (pickCount.get(o.id) ?? 0) === 0 && totalAnswers > 0)
+        .map((o) => ({ id: o.id, text: o.text })),
+      sliderAvg: null,
+      sliderSamples: 0,
+      sliderMax: null,
+    };
+  });
 }
 
 export async function getMetaBreakdown(

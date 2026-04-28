@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { loadQuizFull } from "@/lib/quiz-persistence";
 import { getServerClient } from "@/lib/supabase/server";
 import {
+  getAnswerDistribution,
   getFunnelDropoff,
   getMetaBreakdown,
   getScoreDistribution,
@@ -19,6 +20,7 @@ import { TagPanel } from "@/components/stats/TagPanel";
 import { MetaBreakdown } from "@/components/stats/MetaBreakdown";
 import { SessionsList } from "@/components/stats/SessionsList";
 import { SessionDeepDive } from "@/components/stats/SessionDeepDive";
+import { AnswerDistribution } from "@/components/stats/AnswerDistribution";
 import { PanelShell } from "@/components/stats/PanelShell";
 
 export const dynamic = "force-dynamic";
@@ -61,26 +63,59 @@ export default async function StatsPage({
         .eq("quiz_id", id)
         .not("end_time", "is", null);
 
+  // Avg time-to-complete across COMPLETED sessions (spec line 56).
+  // Filter to the same session in deep-dive mode so the headline tile
+  // reflects that session's duration.
+  let avgDurationQuery = supabase
+    .from("session")
+    .select("start_time, end_time")
+    .eq("quiz_id", id)
+    .not("end_time", "is", null);
+  if (sessionFilter) avgDurationQuery = avgDurationQuery.eq("id", sessionFilter);
+
   const [
     funnel,
     timePerQ,
     meta,
     sessions,
+    answerDist,
     { count: started },
     { count: completed },
+    { data: durationRows },
   ] = await Promise.all([
     getFunnelDropoff(id, sessionFilter),
     getTimePerQuestion(id, sessionFilter),
     getMetaBreakdown(id, sessionFilter),
     listRecentSessions(id, 50),
+    getAnswerDistribution(id, sessionFilter),
     startedQuery,
     completedQuery,
+    avgDurationQuery,
   ]);
 
   const startedCount = started ?? 0;
   const completedCount = completed ?? 0;
   const completionPct =
     startedCount === 0 ? 0 : Math.round((completedCount / startedCount) * 100);
+
+  const durations = (durationRows ?? [])
+    .map((r) => {
+      const start = new Date(r.start_time).getTime();
+      const end = r.end_time ? new Date(r.end_time).getTime() : null;
+      return end == null ? null : (end - start) / 1000;
+    })
+    .filter((s): s is number => s != null && Number.isFinite(s) && s >= 0);
+  const avgDurationSec =
+    durations.length === 0
+      ? null
+      : durations.reduce((s, n) => s + n, 0) / durations.length;
+  const fmtAvgDuration = (s: number | null) => {
+    if (s == null) return "—";
+    if (s > 0 && s < 1) return "<1s";
+    if (s < 60) return `${Math.round(s)}s`;
+    const m = Math.floor(s / 60);
+    return `${m}m ${Math.round(s - m * 60)}s`;
+  };
 
   // Dual-dimension analytics: every option carries BOTH score and tags, so
   // we fetch both for every quiz type. The quiz type only chooses which
@@ -148,7 +183,7 @@ export default async function StatsPage({
         </div>
       </header>
 
-      <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <PanelShell title="Started">
           <p className="text-3xl font-extrabold text-olive-deep">{startedCount}</p>
         </PanelShell>
@@ -158,6 +193,11 @@ export default async function StatsPage({
         <PanelShell title="Completion">
           <p className="text-3xl font-extrabold text-olive-deep">
             {startedCount === 0 ? "—" : `${completionPct}%`}
+          </p>
+        </PanelShell>
+        <PanelShell title="Avg time">
+          <p className="text-3xl font-extrabold text-olive-deep">
+            {fmtAvgDuration(avgDurationSec)}
           </p>
         </PanelShell>
         <PanelShell title="Questions">
@@ -202,6 +242,10 @@ export default async function StatsPage({
             <TagPanel data={tagData} />
           )}
         </div>
+      </section>
+
+      <section className="mt-6">
+        <AnswerDistribution rows={answerDist} />
       </section>
 
       <section className="mt-6">
